@@ -1,0 +1,214 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { renderMarkdown } from "../src/renderer.mjs";
+import { startServer } from "../src/server.mjs";
+import { installKateTools, uninstallKateTools } from "../src/kate.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLI_PATH = path.resolve(__dirname, "../bin/cli.mjs");
+
+test("renderer supports GitHub HTML centering, alerts, details, math, and pele Mermaid", () => {
+  const md = [
+    '<div align="center">',
+    "",
+    "# Demo Title",
+    "",
+    "[![badge](https://img.shields.io/badge/test-passing-green)](https://example.com)",
+    "",
+    "</div>",
+    "",
+    "> [!NOTE]",
+    "> GitHub alert content.",
+    "",
+    "<details><summary>More</summary>Hidden body</details>",
+    "",
+    "Prices are $5 and $10, while $E = mc^2$ is inline math.",
+    "",
+    "$$",
+    "\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}",
+    "$$",
+    "",
+    "```math",
+    "a^2 + b^2 = c^2",
+    "```",
+    "",
+    "```mermaid",
+    "graph LR",
+    "  A[Editor] --> B[pele]",
+    "```",
+    "",
+    "```mermaid",
+    "invalid @@@ diagram",
+    "```",
+    "",
+    "## Repeat",
+    "## Repeat",
+  ].join("\n");
+
+  const { html, title } = renderMarkdown(md);
+  assert.equal(title, "Demo Title");
+  assert.match(html, /<div align="center">/);
+  assert.match(html, /<h1 id="demo-title">Demo Title<\/h1>/);
+  assert.match(html, /markdown-alert-note/);
+  assert.match(html, /<details><summary>More<\/summary>/);
+  assert.match(html, /Prices are \$5 and \$10,/);
+  assert.match(html, /class="katex"/);
+  assert.match(html, /class="math-block"/);
+  assert.match(html, /class="pele-mermaid-diagram".*<svg/s);
+  assert.match(html, /class="pele-mermaid-error"/);
+  assert.match(html, /id="repeat"/);
+  assert.match(html, /id="repeat-1"/);
+});
+
+test("Kate installer and uninstaller are idempotent and preserve unrelated tools", () => {
+  const tmpConfig = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-cfg-"));
+  const toolsDir = path.join(tmpConfig, "kate", "externaltools");
+  const unrelated = path.join(toolsDir, "Unrelated.ini");
+
+  try {
+    fs.mkdirSync(toolsDir, { recursive: true });
+    fs.writeFileSync(unrelated, "[General]\nname=Unrelated\n");
+
+    // 1st install: creates both entries
+    const first = installKateTools({
+      cliPath: CLI_PATH,
+      nodePath: "/usr/bin/node",
+      toolsDir,
+    });
+    assert.equal(first.length, 2);
+    assert.ok(first.every((item) => item.status === "installed"));
+    for (const item of first) {
+      assert.ok(fs.existsSync(item.filePath));
+      const text = fs.readFileSync(item.filePath, "utf8");
+      assert.match(text, /^executable=\/usr\/bin\/node$/m);
+      assert.match(text, /%\{Document:FilePath\}/);
+    }
+
+    // 2nd install: idempotent (unchanged, does not rewrite)
+    const mtimeBefore = fs.statSync(first[0].filePath).mtimeMs;
+    const second = installKateTools({
+      cliPath: CLI_PATH,
+      nodePath: "/usr/bin/node",
+      toolsDir,
+    });
+    assert.ok(second.every((item) => item.status === "unchanged"));
+    assert.equal(fs.statSync(first[0].filePath).mtimeMs, mtimeBefore);
+
+    // Modify one entry -> re-install updates only the changed file
+    fs.writeFileSync(first[0].filePath, "[General]\nname=Stale\n");
+    const third = installKateTools({
+      cliPath: CLI_PATH,
+      nodePath: "/usr/bin/node",
+      toolsDir,
+    });
+    assert.equal(third[0].status, "updated");
+    assert.equal(third[1].status, "unchanged");
+
+    // CLI install-kate / uninstall-kate repeated runs exit 0 cleanly
+    const env = { ...process.env, XDG_CONFIG_HOME: tmpConfig };
+    const cliInstall1 = execFileSync(process.execPath, [CLI_PATH, "install-kate"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliInstall1, /Updated:|Installed:/);
+    const cliInstall2 = execFileSync(process.execPath, [CLI_PATH, "install-kate"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliInstall2, /already up to date/);
+
+    const cliUninstall1 = execFileSync(process.execPath, [CLI_PATH, "uninstall-kate"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliUninstall1, /Removed:/);
+    const cliUninstall2 = execFileSync(process.execPath, [CLI_PATH, "uninstall-kate"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliUninstall2, /Already uninstalled/);
+
+    assert.ok(fs.existsSync(unrelated), "unrelated Kate tool must remain intact");
+  } finally {
+    fs.rmSync(tmpConfig, { recursive: true, force: true });
+  }
+});
+
+test("HTTP server serves rendered markdown, assets, fragments, and blocks path traversal", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-doc-"));
+  const mdFile = path.join(tmpDir, "README.md");
+  const siblingFile = path.join(tmpDir, "OTHER.md");
+  fs.writeFileSync(mdFile, "# Hello\n\nSee [Other](OTHER.md).\n");
+  fs.writeFileSync(siblingFile, "# Other\n");
+
+  const instance = await startServer({ port: 0, writeState: false, idleTimeoutMs: 0 });
+  try {
+    const url = instance.openFile(mdFile);
+    const parsed = new URL(url);
+    const origin = parsed.origin;
+
+    const pageResp = await fetch(url);
+    assert.equal(pageResp.status, 200);
+    const pageHtml = await pageResp.text();
+    assert.match(pageHtml, /<h1 id="hello">Hello<\/h1>/);
+
+    const siblingResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/OTHER.md`);
+    assert.equal(siblingResp.status, 200);
+    assert.match(await siblingResp.text(), /<h1 id="other">Other<\/h1>/);
+
+    const cssResp = await fetch(`${origin}/assets/github-markdown-light.css`);
+    assert.equal(cssResp.status, 200);
+
+    const katexResp = await fetch(`${origin}/assets/katex/katex.min.css`);
+    assert.equal(katexResp.status, 200);
+
+    const escapeResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/..%2F..%2Fetc%2Fpasswd`);
+    assert.equal(escapeResp.status, 404);
+
+    const unauthOpen = await fetch(`${origin}/api/open`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: mdFile }),
+    });
+    assert.equal(unauthOpen.status, 403);
+  } finally {
+    await new Promise((resolve) => instance.server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("CLI starts isolated daemon, reports status, and stops cleanly", () => {
+  const tmpRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-run-"));
+  const tmpDocDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-cli-"));
+  const mdFile = path.join(tmpDocDir, "sample.md");
+  fs.writeFileSync(mdFile, "# CLI Test\n");
+  const env = { ...process.env, XDG_RUNTIME_DIR: tmpRuntime };
+
+  try {
+    const urlOut = execFileSync(process.execPath, [CLI_PATH, "--no-open", mdFile], {
+      env,
+      encoding: "utf8",
+    }).trim();
+    assert.match(urlOut, /^http:\/\/127\.0\.0\.1:\d+\/s\/[0-9a-f]+\/sample\.md$/);
+
+    const statusOut = execFileSync(process.execPath, [CLI_PATH, "--status"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(statusOut, /Running \(pid=\d+/);
+
+    const stopOut = execFileSync(process.execPath, [CLI_PATH, "--stop"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(stopOut, /Stopped kate-md-preview/);
+  } finally {
+    fs.rmSync(tmpRuntime, { recursive: true, force: true });
+    fs.rmSync(tmpDocDir, { recursive: true, force: true });
+  }
+});

@@ -1,0 +1,59 @@
+{
+  "name": "kate-md-preview",
+  "version": "1.0.0",
+  "description": "Standalone local GitHub-style Markdown live previewer (GFM, pele Mermaid, KaTeX) with built-in KDE Kate integration",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChenZhongPu/kate-md-preview.git"
+  },
+  "homepage": "https://github.com/ChenZhongPu/kate-md-preview#readme",
+  "bugs": {
+    "url": "https://github.com/ChenZhongPu/kate-md-preview/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "markdown",
+    "preview",
+    "github",
+    "gfm",
+    "kate",
+    "kde",
+    "mermaid",
+    "pele",
+    "katex"
+  ],
+  "bin": {
+    "kate-md-preview": "./bin/cli.mjs",
+    "md-preview": "./bin/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/renderer.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "install-kate": "node ./bin/cli.mjs install-kate",
+    "uninstall-kate": "node ./bin/cli.mjs uninstall-kate"
+  },
+  "dependencies": {
+    "github-markdown-css": "^5.8.1",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.22",
+    "markdown-it": "^14.1.0",
+    "markdown-it-github-alerts": "^1.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "pele": "^1.13.0"
+  }
+}
