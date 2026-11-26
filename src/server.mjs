@@ -441,7 +441,30 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       cursor: default;
     }
 
-    .outline-toggle,
+    .outline-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted-fg);
+      opacity: 0.65;
+      flex: none;
+      cursor: pointer;
+      transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .outline-toggle:hover,
+    .outline-toggle[aria-expanded="true"] {
+      opacity: 1;
+      background: var(--chip-bg);
+      color: var(--page-fg);
+    }
+
     .width-toggle {
       display: inline-flex;
       align-items: center;
@@ -458,13 +481,11 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
     }
 
-    .outline-toggle:hover,
     .width-toggle:hover {
       opacity: 1;
       color: var(--page-fg);
     }
 
-    .outline-toggle[aria-expanded="true"],
     .width-toggle[aria-pressed="true"] {
       opacity: 1;
       background: var(--page-bg);
@@ -719,6 +740,11 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     <div class="topbar-left">
       <span id="status-dot" class="status-dot" title="Live reload connected"></span>
       <span class="filepath" title="${escapeHtml(relPath)}">${escapeHtml(relPath)}</span>
+      <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Toggle document outline" title="Toggle outline">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M2.25 4h.01M5.25 4h8.5M2.25 8h.01M5.25 8h6.5M2.25 12h.01M5.25 12h8.5" />
+        </svg>
+      </button>
       <span class="server-meta">
         <button id="meta-toggle" class="meta-toggle" type="button" aria-expanded="false" aria-controls="server-meta-pill" title="Show server port and PID">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -751,11 +777,6 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       <button id="width-toggle" class="width-toggle" type="button" aria-pressed="false" aria-label="Toggle full width" title="Full width">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M5 4.75L1.75 8 5 11.25M11 4.75L14.25 8 11 11.25M2.25 8h11.5" />
-        </svg>
-      </button>
-      <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Toggle document outline" title="Toggle outline">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-          <path d="M2.25 4h.01M5.25 4h8.5M2.25 8h.01M5.25 8h6.5M2.25 12h.01M5.25 12h8.5" />
         </svg>
       </button>
       <div id="theme-switch" class="theme-switch" role="radiogroup" aria-label="Color theme">
