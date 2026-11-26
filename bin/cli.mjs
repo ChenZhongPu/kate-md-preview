@@ -328,8 +328,9 @@ async function main() {
   if (foreground) {
     const instance = await startServer({ writeState: false, idleTimeoutMs: 0 });
     const url = instance.openFile(absFile);
+    const launchUrl = useApp ? instance.openAppFile(absFile) : url;
     console.log(url);
-    if (!noOpen) openUrl(url, useApp);
+    if (!noOpen) openUrl(launchUrl, useApp);
     process.on("SIGINT", instance.shutdown);
     process.on("SIGTERM", instance.shutdown);
     return;
@@ -350,11 +351,11 @@ async function main() {
     throw new Error(`Failed to open preview: ${resp.status} ${errText}`);
   }
 
-  const { url } = await resp.json();
+  const { url, appUrl } = await resp.json();
   console.log(url);
 
   if (!noOpen) {
-    openUrl(url, useApp);
+    openUrl(useApp && appUrl ? appUrl : url, useApp);
   }
 }
 

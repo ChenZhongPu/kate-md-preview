@@ -648,13 +648,43 @@ export function startServer({
         }
         const { id, relPath } = getOrCreateSession(absFile);
         const addr = server.address();
-        const previewUrl = `http://127.0.0.1:${addr.port}/s/${id}/${relPath}`;
+        const docPath = `/s/${id}/${relPath}`;
+        const previewUrl = `http://127.0.0.1:${addr.port}${docPath}`;
+        const appUrl = `http://127.0.0.1:${addr.port}/kate-md-preview?target=${encodeURIComponent(docPath)}`;
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ url: previewUrl }));
+        res.end(JSON.stringify({ url: previewUrl, appUrl }));
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message }));
       }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/kate-md-preview") {
+      const target = url.searchParams.get("target") || "";
+      if (!target.startsWith("/s/") || target.startsWith("//") || /[\r\n]/.test(target)) {
+        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Invalid target");
+        return;
+      }
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Markdown Preview</title>
+  <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png" />
+  <link rel="icon" type="image/svg+xml" href="/assets/icon.svg" />
+  <meta http-equiv="refresh" content="0;url=${escapeHtml(target)}" />
+</head>
+<body>
+  <script>window.location.replace(${JSON.stringify(target)});</script>
+</body>
+</html>`;
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(html);
       return;
     }
 
@@ -855,6 +885,11 @@ export function startServer({
         openFile(absFile) {
           const { id, relPath } = getOrCreateSession(path.resolve(absFile));
           return `http://127.0.0.1:${addr.port}/s/${id}/${relPath}`;
+        },
+        openAppFile(absFile) {
+          const { id, relPath } = getOrCreateSession(path.resolve(absFile));
+          const docPath = `/s/${id}/${relPath}`;
+          return `http://127.0.0.1:${addr.port}/kate-md-preview?target=${encodeURIComponent(docPath)}`;
         },
         shutdown,
       });

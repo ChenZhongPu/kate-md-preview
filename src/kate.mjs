@@ -9,7 +9,9 @@ const DEFAULT_ICON_PATH = path.resolve(
   "icon.svg"
 );
 
-const DESKTOP_ENTRY_FILENAME = "kate-md-preview.desktop";
+const CHROME_APP_ID = "chrome-127.0.0.1__kate-md-preview-Default";
+const DESKTOP_ENTRY_FILENAME = `${CHROME_APP_ID}.desktop`;
+const LEGACY_DESKTOP_FILENAMES = ["kate-md-preview.desktop"];
 
 const TOOL_FILES = [
   {
@@ -83,7 +85,7 @@ export function buildDesktopEntry({ iconPath = DEFAULT_ICON_PATH } = {}) {
     "Name=Markdown Preview",
     "Comment=Local GitHub-style Markdown live preview",
     `Icon=${iconPath}`,
-    "StartupWMClass=kate-md-preview",
+    `StartupWMClass=${CHROME_APP_ID}`,
     "NoDisplay=true",
     "",
   ].join("\n");
@@ -119,6 +121,14 @@ export function installKateTools({
   }
 
   if (applicationsDir) {
+    if (!dryRun) {
+      for (const legacy of LEGACY_DESKTOP_FILENAMES) {
+        const legacyPath = path.join(applicationsDir, legacy);
+        if (fs.existsSync(legacyPath)) {
+          fs.unlinkSync(legacyPath);
+        }
+      }
+    }
     const desktopPath = path.join(applicationsDir, DESKTOP_ENTRY_FILENAME);
     const desktopContent = buildDesktopEntry({ iconPath });
     const status = writeIdempotent(desktopPath, desktopContent, { dryRun, mode: 0o644 });
@@ -150,12 +160,14 @@ export function uninstallKateTools({
   }
 
   if (applicationsDir) {
-    const desktopPath = path.join(applicationsDir, DESKTOP_ENTRY_FILENAME);
-    if (fs.existsSync(desktopPath)) {
-      if (!dryRun) {
-        fs.unlinkSync(desktopPath);
+    for (const name of [DESKTOP_ENTRY_FILENAME, ...LEGACY_DESKTOP_FILENAMES]) {
+      const desktopPath = path.join(applicationsDir, name);
+      if (fs.existsSync(desktopPath)) {
+        if (!dryRun) {
+          fs.unlinkSync(desktopPath);
+        }
+        removed.push(desktopPath);
       }
-      removed.push(desktopPath);
     }
   }
 

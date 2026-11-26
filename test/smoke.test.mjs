@@ -92,7 +92,8 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
       assert.match(text, /%\{Document:FilePath\}/);
     }
     const desktopText = fs.readFileSync(first[2].filePath, "utf8");
-    assert.match(desktopText, /^StartupWMClass=kate-md-preview$/m);
+    assert.match(first[2].filePath, /chrome-127\.0\.0\.1__kate-md-preview-Default\.desktop$/);
+    assert.match(desktopText, /^StartupWMClass=chrome-127\.0\.0\.1__kate-md-preview-Default$/m);
     assert.match(desktopText, /^NoDisplay=true$/m);
     assert.match(desktopText, /icon\.svg$/m);
 
@@ -193,6 +194,15 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
     assert.equal(manifestResp.status, 200);
     const manifest = await manifestResp.json();
     assert.equal(manifest.icons[0].sizes, "256x256");
+
+    const appUrl = instance.openAppFile(mdFile);
+    assert.match(appUrl, /\/kate-md-preview\?target=%2Fs%2F/);
+    const appResp = await fetch(appUrl);
+    assert.equal(appResp.status, 200);
+    assert.match(await appResp.text(), /window\.location\.replace\("\/s\//);
+
+    const badAppResp = await fetch(`${origin}/kate-md-preview?target=https://evil.example`);
+    assert.equal(badAppResp.status, 400);
 
     const escapeResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/..%2F..%2Fetc%2Fpasswd`);
     assert.equal(escapeResp.status, 404);

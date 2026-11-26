@@ -76,10 +76,10 @@ This package includes built-in bindings for **Kate External Tools** (`Tools -> E
 kate-md-preview install-kate
 ```
 
-This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`, plus a hidden desktop entry (`~/.local/share/applications/kate-md-preview.desktop`, `NoDisplay=true`) on Linux so `--app` windows display a crisp vector taskbar icon:
+This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`, plus a hidden desktop entry (`~/.local/share/applications/chrome-127.0.0.1__kate-md-preview-Default.desktop`, `NoDisplay=true`) on Linux so Chromium `--app` windows match Wayland `app_id` and display a crisp vector SVG taskbar icon:
 
 - **Markdown Preview (GitHub)** — opens the current file in your default browser.
-- **Markdown Preview (GitHub App Window)** — opens a chromeless Chromium-based app window (`--class=kate-md-preview`) suited for side-by-side tiling with Kate.
+- **Markdown Preview (GitHub App Window)** — opens a chromeless Chromium-based app window (via the fixed `/kate-md-preview` launcher route) suited for side-by-side tiling with Kate.
 
 Use `kate-md-preview install-kate --dry-run` to inspect what would be written before making changes. Running `install-kate` multiple times is idempotent: unchanged entries are left untouched, existing shortcuts are preserved, and updated paths are refreshed cleanly.
 
