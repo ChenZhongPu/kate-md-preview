@@ -139,6 +139,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       --bar-border: #d0d7de;
       --chip-bg: rgba(175, 184, 193, 0.16);
       --chip-hover: rgba(175, 184, 193, 0.28);
+      --thumb-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
       --muted-fg: #656d76;
       --alert-note: #0969da;
       --alert-tip: #1a7f37;
@@ -163,6 +164,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
         --bar-border: #30363d;
         --chip-bg: rgba(110, 118, 129, 0.18);
         --chip-hover: rgba(110, 118, 129, 0.32);
+        --thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
         --muted-fg: #8b949e;
         --alert-note: #4493f8;
         --alert-tip: #3fb950;
@@ -187,6 +189,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       --bar-border: #30363d;
       --chip-bg: rgba(110, 118, 129, 0.18);
       --chip-hover: rgba(110, 118, 129, 0.32);
+      --thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
       --muted-fg: #8b949e;
       --alert-note: #4493f8;
       --alert-tip: #3fb950;
@@ -331,17 +334,48 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       flex: none;
     }
 
-    .theme-btn {
+    .theme-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 999px;
       border: 1px solid var(--bar-border);
-      background: transparent;
-      color: var(--page-fg);
-      border-radius: 6px;
-      padding: 3px 9px;
-      font-size: 12px;
-      cursor: pointer;
+      background: var(--chip-bg);
     }
 
-    .theme-btn:hover { border-color: var(--muted-fg); }
+    .theme-opt {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted-fg);
+      opacity: 0.65;
+      cursor: pointer;
+      transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .theme-opt:hover {
+      opacity: 1;
+      color: var(--page-fg);
+    }
+
+    .theme-opt[aria-checked="true"] {
+      opacity: 1;
+      background: var(--page-bg);
+      color: var(--page-fg);
+      box-shadow: var(--thumb-shadow);
+    }
+
+    .theme-opt:focus-visible {
+      outline: 1.5px solid var(--alert-note);
+      outline-offset: 1px;
+    }
 
     .container {
       max-width: 1012px;
@@ -463,7 +497,25 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       </span>
     </div>
     <div class="topbar-actions">
-      <button id="theme-btn" class="theme-btn" type="button" title="Toggle theme">Theme: Auto</button>
+      <div id="theme-switch" class="theme-switch" role="radiogroup" aria-label="Color theme">
+        <button class="theme-opt" type="button" role="radio" data-theme-opt="auto" aria-checked="true" aria-label="System theme" title="Theme: System">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="2.75" width="12" height="8.5" rx="1.5" />
+            <path d="M5.5 13.75h5M8 11.25v2.5" />
+          </svg>
+        </button>
+        <button class="theme-opt" type="button" role="radio" data-theme-opt="light" aria-checked="false" aria-label="Light theme" title="Theme: Light">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="2.75" />
+            <path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.58 3.58l1.06 1.06M11.36 11.36l1.06 1.06M12.42 3.58l-1.06 1.06M4.64 11.36l-1.06 1.06" />
+          </svg>
+        </button>
+        <button class="theme-opt" type="button" role="radio" data-theme-opt="dark" aria-checked="false" aria-label="Dark theme" title="Theme: Dark">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13.25 9.85A5.5 5.5 0 0 1 6.15 2.75a5.5 5.5 0 1 0 7.1 7.1z" />
+          </svg>
+        </button>
+      </div>
     </div>
   </header>
   <main class="container">
@@ -472,19 +524,20 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
   <script>
     (function () {
       const root = document.documentElement;
-      const btn = document.getElementById("theme-btn");
+      const themeOpts = Array.from(document.querySelectorAll(".theme-opt"));
       const ghLight = document.getElementById("gh-css-light");
       const ghDark = document.getElementById("gh-css-dark");
       const hljsLight = document.getElementById("hljs-css-light");
       const hljsDark = document.getElementById("hljs-css-dark");
       const modes = ["auto", "light", "dark"];
-      const labels = { auto: "Theme: Auto", light: "Theme: Light", dark: "Theme: Dark" };
 
       function applyTheme(mode) {
         if (!modes.includes(mode)) mode = "auto";
         root.setAttribute("data-theme", mode);
         localStorage.setItem("kate-md-theme", mode);
-        btn.textContent = labels[mode];
+        for (const opt of themeOpts) {
+          opt.setAttribute("aria-checked", String(opt.dataset.themeOpt === mode));
+        }
         if (mode === "light") {
           ghLight.media = "all"; hljsLight.media = "all";
           ghDark.media = "not all"; hljsDark.media = "not all";
@@ -500,11 +553,9 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       }
 
       applyTheme(localStorage.getItem("kate-md-theme") || "auto");
-      btn.addEventListener("click", () => {
-        const cur = root.getAttribute("data-theme") || "auto";
-        const next = modes[(modes.indexOf(cur) + 1) % modes.length];
-        applyTheme(next);
-      });
+      for (const opt of themeOpts) {
+        opt.addEventListener("click", () => applyTheme(opt.dataset.themeOpt));
+      }
 
       const metaToggle = document.getElementById("meta-toggle");
       const metaPill = document.getElementById("server-meta-pill");
