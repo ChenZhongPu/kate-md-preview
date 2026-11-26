@@ -1,6 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
+
+const DEFAULT_ICON_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "assets",
+  "icon.svg"
+);
+
+const DESKTOP_ENTRY_FILENAME = "kate-md-preview.desktop";
 
 const TOOL_FILES = [
   {
@@ -22,6 +31,11 @@ const TOOL_FILES = [
 export function getKateExternalToolsDir(env = process.env) {
   const configRoot = env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   return path.join(configRoot, "kate", "externaltools");
+}
+
+export function getApplicationsDir(env = process.env) {
+  const dataRoot = env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+  return path.join(dataRoot, "applications");
 }
 
 export function resolveStableNodePath(execPath = process.execPath, homeDir = os.homedir()) {
@@ -62,36 +76,66 @@ export function buildKateToolIni({ tool, nodePath, cliPath }) {
   ].join("\n");
 }
 
+export function buildDesktopEntry({ iconPath = DEFAULT_ICON_PATH } = {}) {
+  return [
+    "[Desktop Entry]",
+    "Type=Application",
+    "Name=Markdown Preview",
+    "Comment=Local GitHub-style Markdown live preview",
+    `Icon=${iconPath}`,
+    "StartupWMClass=kate-md-preview",
+    "NoDisplay=true",
+    "",
+  ].join("\n");
+}
+
+function writeIdempotent(filePath, content, { dryRun, mode }) {
+  let status = "installed";
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, "utf8");
+    status = existing === content ? "unchanged" : "updated";
+  }
+  if (!dryRun && status !== "unchanged") {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, { mode });
+  }
+  return status;
+}
+
 export function installKateTools({
   cliPath,
   nodePath = resolveStableNodePath(),
   toolsDir = getKateExternalToolsDir(),
+  applicationsDir = process.platform === "linux" ? getApplicationsDir() : null,
+  iconPath = DEFAULT_ICON_PATH,
   dryRun = false,
 } = {}) {
   const results = [];
-  if (!dryRun) {
-    fs.mkdirSync(toolsDir, { recursive: true });
-  }
   for (const tool of TOOL_FILES) {
     const filePath = path.join(toolsDir, tool.filename);
     const content = buildKateToolIni({ tool, nodePath, cliPath });
-    let status = "installed";
-
-    if (fs.existsSync(filePath)) {
-      const existing = fs.readFileSync(filePath, "utf8");
-      status = existing === content ? "unchanged" : "updated";
-    }
-
-    if (!dryRun && status !== "unchanged") {
-      fs.writeFileSync(filePath, content, { mode: 0o600 });
-    }
+    const status = writeIdempotent(filePath, content, { dryRun, mode: 0o600 });
     results.push({ name: tool.name, filePath, content, status });
   }
+
+  if (applicationsDir) {
+    const desktopPath = path.join(applicationsDir, DESKTOP_ENTRY_FILENAME);
+    const desktopContent = buildDesktopEntry({ iconPath });
+    const status = writeIdempotent(desktopPath, desktopContent, { dryRun, mode: 0o644 });
+    results.push({
+      name: "Desktop App Window Icon",
+      filePath: desktopPath,
+      content: desktopContent,
+      status,
+    });
+  }
+
   return results;
 }
 
 export function uninstallKateTools({
   toolsDir = getKateExternalToolsDir(),
+  applicationsDir = process.platform === "linux" ? getApplicationsDir() : null,
   dryRun = false,
 } = {}) {
   const removed = [];
@@ -104,5 +148,16 @@ export function uninstallKateTools({
       removed.push(filePath);
     }
   }
+
+  if (applicationsDir) {
+    const desktopPath = path.join(applicationsDir, DESKTOP_ENTRY_FILENAME);
+    if (fs.existsSync(desktopPath)) {
+      if (!dryRun) {
+        fs.unlinkSync(desktopPath);
+      }
+      removed.push(desktopPath);
+    }
+  }
+
   return removed;
 }

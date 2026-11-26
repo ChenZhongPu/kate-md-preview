@@ -76,10 +76,10 @@ This package includes built-in bindings for **Kate External Tools** (`Tools -> E
 kate-md-preview install-kate
 ```
 
-This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`:
+This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`, plus a hidden desktop entry (`~/.local/share/applications/kate-md-preview.desktop`, `NoDisplay=true`) on Linux so `--app` windows display a crisp vector taskbar icon:
 
 - **Markdown Preview (GitHub)** — opens the current file in your default browser.
-- **Markdown Preview (GitHub App Window)** — opens a chromeless Chromium-based app window suited for side-by-side tiling with Kate.
+- **Markdown Preview (GitHub App Window)** — opens a chromeless Chromium-based app window (`--class=kate-md-preview`) suited for side-by-side tiling with Kate.
 
 Use `kate-md-preview install-kate --dry-run` to inspect what would be written before making changes. Running `install-kate` multiple times is idempotent: unchanged entries are left untouched, existing shortcuts are preserved, and updated paths are refreshed cleanly.
 
@@ -91,13 +91,22 @@ Use `kate-md-preview install-kate --dry-run` to inspect what would be written be
 4. Optional: bind a shortcut in **Settings → Configure Keyboard Shortcuts** (search for `Markdown Preview`).
 5. Saving (`Ctrl+S`) in Kate automatically refreshes the preview in place.
 
+### Upgrading
+
+```bash
+npm update -g kate-md-preview
+```
+
+- For routine upgrades, you **do not** need to re-run `kate-md-preview install-kate`: the registered `.ini` entries keep pointing to your global npm package, and the CLI automatically restarts any older background preview daemon when the package version changes.
+- Only re-run `kate-md-preview install-kate` if a release adds new Kate/desktop entries or if you move your Node.js installation path (e.g., switching Node version managers).
+
 ### Uninstall Kate bindings
 
 ```bash
 kate-md-preview uninstall-kate
 ```
 
-`uninstall-kate` also supports `--dry-run` and is safe to run repeatedly (it only removes the two `.ini` files managed by this tool and leaves all other Kate tools intact).
+`uninstall-kate` also supports `--dry-run` and is safe to run repeatedly (it only removes the two `.ini` files and the hidden `.desktop` entry managed by this tool, leaving all other Kate tools intact).
 
 ## Using with other editors
 

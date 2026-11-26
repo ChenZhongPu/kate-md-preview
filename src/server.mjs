@@ -4,10 +4,12 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { renderMarkdown } from "./renderer.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
+const ASSETS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "assets");
 
 export function getStateFilePath() {
   return path.join(
@@ -94,9 +96,22 @@ function resolveAssets() {
       require.resolve("highlight.js/styles/github-dark.min.css"),
     ],
     ["/assets/katex/katex.min.css", katexCss],
+    ["/assets/icon.svg", path.join(ASSETS_DIR, "icon.svg")],
+    ["/assets/icon-256.png", path.join(ASSETS_DIR, "icon-256.png")],
+    ["/favicon.ico", path.join(ASSETS_DIR, "icon-256.png")],
   ]);
   return { assetMap, katexFontsDir };
 }
+
+const WEB_MANIFEST = JSON.stringify({
+  name: "Markdown Preview",
+  short_name: "MD Preview",
+  display: "standalone",
+  icons: [
+    { src: "/assets/icon-256.png", sizes: "256x256", type: "image/png" },
+    { src: "/assets/icon.svg", sizes: "any", type: "image/svg+xml" },
+  ],
+});
 
 function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml }) {
   const fragmentUrl = `/api/fragment?session=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(encodedRelPath)}`;
@@ -108,6 +123,9 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)} — Markdown Preview</title>
+  <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png" />
+  <link rel="icon" type="image/svg+xml" href="/assets/icon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <link id="gh-css-light" rel="stylesheet" href="/assets/github-markdown-light.css" media="(prefers-color-scheme: light)" />
   <link id="gh-css-dark" rel="stylesheet" href="/assets/github-markdown-dark.css" media="(prefers-color-scheme: dark)" />
   <link id="hljs-css-light" rel="stylesheet" href="/assets/hljs-light.css" media="(prefers-color-scheme: light)" />
@@ -637,6 +655,15 @@ export function startServer({
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message }));
       }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/manifest.webmanifest") {
+      res.writeHead(200, {
+        "Content-Type": "application/manifest+json; charset=utf-8",
+        "Cache-Control": "no-cache",
+      });
+      res.end(WEB_MANIFEST);
       return;
     }
 

@@ -68,8 +68,24 @@ async function fetchHealth(state) {
 
 async function ensureServer() {
   const existing = readState();
-  if (await fetchHealth(existing)) {
-    return existing;
+  const health = await fetchHealth(existing);
+  if (health) {
+    if (health.version === pkg.version) {
+      return existing;
+    }
+    // Package was upgraded while an older daemon was still running; restart cleanly.
+    if (existing?.pid) {
+      try {
+        process.kill(existing.pid, "SIGTERM");
+      } catch {
+        // already stopped
+      }
+      const stopDeadline = Date.now() + 2000;
+      while (Date.now() < stopDeadline) {
+        await new Promise((r) => setTimeout(r, 60));
+        if (!(await fetchHealth(existing))) break;
+      }
+    }
   }
 
   const stateFile = getStateFilePath();
@@ -151,7 +167,11 @@ function openUrl(url, useAppWindow) {
   if (useAppWindow) {
     const browserBin = findAppBrowser();
     if (browserBin) {
-      const child = spawn(browserBin, [`--app=${url}`], {
+      const appArgs =
+        process.platform === "linux"
+          ? ["--class=kate-md-preview", `--app=${url}`]
+          : [`--app=${url}`];
+      const child = spawn(browserBin, appArgs, {
         detached: true,
         stdio: "ignore",
       });

@@ -67,27 +67,34 @@ test("renderer supports GitHub HTML centering, alerts, details, math, and pele M
 
 test("Kate installer and uninstaller are idempotent and preserve unrelated tools", () => {
   const tmpConfig = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-cfg-"));
+  const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-data-"));
   const toolsDir = path.join(tmpConfig, "kate", "externaltools");
+  const applicationsDir = path.join(tmpData, "applications");
   const unrelated = path.join(toolsDir, "Unrelated.ini");
 
   try {
     fs.mkdirSync(toolsDir, { recursive: true });
     fs.writeFileSync(unrelated, "[General]\nname=Unrelated\n");
 
-    // 1st install: creates both entries
+    // 1st install: creates both .ini entries + hidden .desktop entry
     const first = installKateTools({
       cliPath: CLI_PATH,
       nodePath: "/usr/bin/node",
       toolsDir,
+      applicationsDir,
     });
-    assert.equal(first.length, 2);
+    assert.equal(first.length, 3);
     assert.ok(first.every((item) => item.status === "installed"));
-    for (const item of first) {
+    for (const item of first.slice(0, 2)) {
       assert.ok(fs.existsSync(item.filePath));
       const text = fs.readFileSync(item.filePath, "utf8");
       assert.match(text, /^executable=\/usr\/bin\/node$/m);
       assert.match(text, /%\{Document:FilePath\}/);
     }
+    const desktopText = fs.readFileSync(first[2].filePath, "utf8");
+    assert.match(desktopText, /^StartupWMClass=kate-md-preview$/m);
+    assert.match(desktopText, /^NoDisplay=true$/m);
+    assert.match(desktopText, /icon\.svg$/m);
 
     // 2nd install: idempotent (unchanged, does not rewrite)
     const mtimeBefore = fs.statSync(first[0].filePath).mtimeMs;
@@ -95,6 +102,7 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
       cliPath: CLI_PATH,
       nodePath: "/usr/bin/node",
       toolsDir,
+      applicationsDir,
     });
     assert.ok(second.every((item) => item.status === "unchanged"));
     assert.equal(fs.statSync(first[0].filePath).mtimeMs, mtimeBefore);
@@ -105,12 +113,14 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
       cliPath: CLI_PATH,
       nodePath: "/usr/bin/node",
       toolsDir,
+      applicationsDir,
     });
     assert.equal(third[0].status, "updated");
     assert.equal(third[1].status, "unchanged");
+    assert.equal(third[2].status, "unchanged");
 
     // CLI install-kate / uninstall-kate repeated runs exit 0 cleanly
-    const env = { ...process.env, XDG_CONFIG_HOME: tmpConfig };
+    const env = { ...process.env, XDG_CONFIG_HOME: tmpConfig, XDG_DATA_HOME: tmpData };
     const cliInstall1 = execFileSync(process.execPath, [CLI_PATH, "install-kate"], {
       env,
       encoding: "utf8",
@@ -127,6 +137,7 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
       encoding: "utf8",
     });
     assert.match(cliUninstall1, /Removed:/);
+    assert.ok(!fs.existsSync(first[2].filePath), "desktop entry must be removed");
     const cliUninstall2 = execFileSync(process.execPath, [CLI_PATH, "uninstall-kate"], {
       env,
       encoding: "utf8",
@@ -136,6 +147,7 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
     assert.ok(fs.existsSync(unrelated), "unrelated Kate tool must remain intact");
   } finally {
     fs.rmSync(tmpConfig, { recursive: true, force: true });
+    fs.rmSync(tmpData, { recursive: true, force: true });
   }
 });
 
@@ -156,6 +168,8 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
     assert.equal(pageResp.status, 200);
     const pageHtml = await pageResp.text();
     assert.match(pageHtml, /<h1 id="hello">Hello<\/h1>/);
+    assert.match(pageHtml, /href="\/assets\/icon-256\.png"/);
+    assert.match(pageHtml, /href="\/manifest\.webmanifest"/);
 
     const siblingResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/OTHER.md`);
     assert.equal(siblingResp.status, 200);
@@ -166,6 +180,19 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
 
     const katexResp = await fetch(`${origin}/assets/katex/katex.min.css`);
     assert.equal(katexResp.status, 200);
+
+    const iconPngResp = await fetch(`${origin}/assets/icon-256.png`);
+    assert.equal(iconPngResp.status, 200);
+    assert.equal(iconPngResp.headers.get("content-type"), "image/png");
+
+    const iconSvgResp = await fetch(`${origin}/assets/icon.svg`);
+    assert.equal(iconSvgResp.status, 200);
+    assert.equal(iconSvgResp.headers.get("content-type"), "image/svg+xml");
+
+    const manifestResp = await fetch(`${origin}/manifest.webmanifest`);
+    assert.equal(manifestResp.status, 200);
+    const manifest = await manifestResp.json();
+    assert.equal(manifest.icons[0].sizes, "256x256");
 
     const escapeResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/..%2F..%2Fetc%2Fpasswd`);
     assert.equal(escapeResp.status, 404);
