@@ -30,8 +30,8 @@
     "katex"
   ],
   "bin": {
-    "kate-md-preview": "./bin/cli.mjs",
-    "md-preview": "./bin/cli.mjs"
+    "kate-md-preview": "bin/cli.mjs",
+    "md-preview": "bin/cli.mjs"
   },
   "exports": {
     ".": "./src/renderer.mjs"
