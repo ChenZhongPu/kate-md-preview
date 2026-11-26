@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { getStateFilePath, startServer } from "../src/server.mjs";
 import { installKateTools, isEphemeralNpxPath, uninstallKateTools } from "../src/kate.mjs";
+import { normalizeAppMode, openPreviewUrl } from "../src/browser.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -26,7 +27,8 @@ Usage:
   kate-md-preview uninstall-kate [--dry-run]
 
 Options:
-  --app             Open in a chromeless browser app window (Chrome/Chromium/Brave/Edge)
+  --app[=TARGET]    Open in an app window (auto: Chromium -> Firefox -> Safari on macOS)
+                    Optional TARGET: auto, chrome, chromium, edge, brave, firefox, safari
   --browser         Open in the system default browser (default)
   --no-open         Start server and print preview URL without opening a browser
   -f, --foreground  Run server in the foreground for this file (Ctrl+C to stop)
@@ -36,7 +38,8 @@ Options:
   -h, --help        Show this help message
 
 Environment:
-  KATE_MD_PREVIEW_APP=1   Default to --app window mode`);
+  KATE_MD_PREVIEW_APP=1|firefox|chrome|edge|brave|safari
+                    Default to --app window mode (or pin a specific browser)`);
 }
 
 function readState() {
@@ -113,93 +116,6 @@ async function ensureServer() {
   throw new Error("Timed out waiting for preview server to start");
 }
 
-function findInPath(executable) {
-  const pathDirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
-  for (const dir of pathDirs) {
-    const full = path.join(dir, executable);
-    try {
-      fs.accessSync(full, fs.constants.X_OK);
-      return full;
-    } catch {
-      // continue
-    }
-  }
-  return null;
-}
-
-function findAppBrowser() {
-  if (process.platform === "darwin") {
-    const macCandidates = [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ];
-    for (const p of macCandidates) {
-      if (fs.existsSync(p)) return p;
-    }
-    return null;
-  }
-
-  if (process.platform === "linux") {
-    const linuxCandidates = [
-      "google-chrome-stable",
-      "google-chrome",
-      "chromium",
-      "chromium-browser",
-      "brave-browser",
-      "brave",
-      "microsoft-edge",
-      "microsoft-edge-stable",
-    ];
-    for (const name of linuxCandidates) {
-      const found = findInPath(name);
-      if (found) return found;
-      const usrBin = `/usr/bin/${name}`;
-      if (fs.existsSync(usrBin)) return usrBin;
-    }
-  }
-
-  return null;
-}
-
-function openUrl(url, useAppWindow) {
-  if (useAppWindow) {
-    const browserBin = findAppBrowser();
-    if (browserBin) {
-      const appArgs =
-        process.platform === "linux"
-          ? ["--class=kate-md-preview", `--app=${url}`]
-          : [`--app=${url}`];
-      const child = spawn(browserBin, appArgs, {
-        detached: true,
-        stdio: "ignore",
-      });
-      child.unref();
-      return;
-    }
-  }
-
-  let cmd;
-  let args;
-  if (process.platform === "darwin") {
-    cmd = "open";
-    args = [url];
-  } else if (process.platform === "win32") {
-    cmd = "cmd";
-    args = ["/c", "start", "", url];
-  } else {
-    cmd = "xdg-open";
-    args = [url];
-  }
-
-  const child = spawn(cmd, args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-}
-
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0 || args.includes("-h") || args.includes("--help")) {
@@ -260,7 +176,7 @@ async function main() {
     return;
   }
 
-  let useApp = process.env.KATE_MD_PREVIEW_APP === "1";
+  let appMode = normalizeAppMode(process.env.KATE_MD_PREVIEW_APP);
   let noOpen = false;
   let foreground = false;
   let stopDaemon = false;
@@ -268,8 +184,9 @@ async function main() {
   let fileArg = null;
 
   for (const arg of args) {
-    if (arg === "--app") useApp = true;
-    else if (arg === "--browser") useApp = false;
+    if (arg === "--app") appMode = "auto";
+    else if (arg.startsWith("--app=")) appMode = normalizeAppMode(arg.slice("--app=".length));
+    else if (arg === "--browser") appMode = null;
     else if (arg === "--no-open") noOpen = true;
     else if (arg === "-f" || arg === "--foreground") foreground = true;
     else if (arg === "--stop") stopDaemon = true;
@@ -328,9 +245,9 @@ async function main() {
   if (foreground) {
     const instance = await startServer({ writeState: false, idleTimeoutMs: 0 });
     const url = instance.openFile(absFile);
-    const launchUrl = useApp ? instance.openAppFile(absFile) : url;
+    const appUrl = instance.openAppFile(absFile);
     console.log(url);
-    if (!noOpen) openUrl(launchUrl, useApp);
+    if (!noOpen) openPreviewUrl({ url, appUrl, appMode });
     process.on("SIGINT", instance.shutdown);
     process.on("SIGTERM", instance.shutdown);
     return;
@@ -355,7 +272,7 @@ async function main() {
   console.log(url);
 
   if (!noOpen) {
-    openUrl(useApp && appUrl ? appUrl : url, useApp);
+    openPreviewUrl({ url, appUrl, appMode });
   }
 }
 

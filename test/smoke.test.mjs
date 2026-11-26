@@ -8,6 +8,11 @@ import { fileURLToPath } from "node:url";
 import { renderMarkdown } from "../src/renderer.mjs";
 import { startServer } from "../src/server.mjs";
 import { installKateTools, uninstallKateTools } from "../src/kate.mjs";
+import {
+  ensureFirefoxAppProfile,
+  normalizeAppMode,
+  resolveBrowserLaunch,
+} from "../src/browser.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = path.resolve(__dirname, "../bin/cli.mjs");
@@ -76,14 +81,14 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
     fs.mkdirSync(toolsDir, { recursive: true });
     fs.writeFileSync(unrelated, "[General]\nname=Unrelated\n");
 
-    // 1st install: creates both .ini entries + hidden .desktop entry
+    // 1st install: creates both .ini entries + Chromium & Firefox hidden .desktop entries
     const first = installKateTools({
       cliPath: CLI_PATH,
       nodePath: "/usr/bin/node",
       toolsDir,
       applicationsDir,
     });
-    assert.equal(first.length, 3);
+    assert.equal(first.length, 4);
     assert.ok(first.every((item) => item.status === "installed"));
     for (const item of first.slice(0, 2)) {
       assert.ok(fs.existsSync(item.filePath));
@@ -91,11 +96,16 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
       assert.match(text, /^executable=\/usr\/bin\/node$/m);
       assert.match(text, /%\{Document:FilePath\}/);
     }
-    const desktopText = fs.readFileSync(first[2].filePath, "utf8");
+    const chromeDesktopText = fs.readFileSync(first[2].filePath, "utf8");
     assert.match(first[2].filePath, /chrome-127\.0\.0\.1__kate-md-preview-Default\.desktop$/);
-    assert.match(desktopText, /^StartupWMClass=chrome-127\.0\.0\.1__kate-md-preview-Default$/m);
-    assert.match(desktopText, /^NoDisplay=true$/m);
-    assert.match(desktopText, /icon\.svg$/m);
+    assert.match(chromeDesktopText, /^StartupWMClass=chrome-127\.0\.0\.1__kate-md-preview-Default$/m);
+    assert.match(chromeDesktopText, /^NoDisplay=true$/m);
+    assert.match(chromeDesktopText, /icon\.svg$/m);
+
+    const ffDesktopText = fs.readFileSync(first[3].filePath, "utf8");
+    assert.match(first[3].filePath, /kate-md-preview\.desktop$/);
+    assert.match(ffDesktopText, /^StartupWMClass=kate-md-preview$/m);
+    assert.match(ffDesktopText, /^NoDisplay=true$/m);
 
     // 2nd install: idempotent (unchanged, does not rewrite)
     const mtimeBefore = fs.statSync(first[0].filePath).mtimeMs;
@@ -119,6 +129,7 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
     assert.equal(third[0].status, "updated");
     assert.equal(third[1].status, "unchanged");
     assert.equal(third[2].status, "unchanged");
+    assert.equal(third[3].status, "unchanged");
 
     // CLI install-kate / uninstall-kate repeated runs exit 0 cleanly
     const env = { ...process.env, XDG_CONFIG_HOME: tmpConfig, XDG_DATA_HOME: tmpData };
@@ -261,5 +272,79 @@ test("CLI starts isolated daemon, reports status, and stops cleanly", () => {
   } finally {
     fs.rmSync(tmpRuntime, { recursive: true, force: true });
     fs.rmSync(tmpDocDir, { recursive: true, force: true });
+  }
+});
+
+test("browser launcher resolves Windows Edge, Firefox chromeless profile, and macOS Safari", () => {
+  assert.equal(normalizeAppMode("1"), "auto");
+  assert.equal(normalizeAppMode("Firefox"), "firefox");
+  assert.equal(normalizeAppMode("0"), null);
+  assert.throws(() => normalizeAppMode("unknown-browser"), /Invalid --app target/);
+
+  const url = "http://127.0.0.1:41234/s/abc/README.md";
+  const appUrl = "http://127.0.0.1:41234/kate-md-preview?target=%2Fs%2Fabc%2FREADME.md";
+
+  // Windows: detects preinstalled Microsoft Edge for --app
+  const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  const winLaunch = resolveBrowserLaunch({
+    url,
+    appUrl,
+    appMode: "auto",
+    platform: "win32",
+    env: { "PROGRAMFILES(X86)": "C:\\Program Files (x86)" },
+    existsSync: (p) => p === edgePath,
+    findInPath: () => null,
+  });
+  assert.equal(winLaunch.kind, "chromium");
+  assert.equal(winLaunch.cmd, edgePath);
+  assert.deepEqual(winLaunch.args, [`--app=${appUrl}`]);
+
+  // Linux: falls back to Firefox chromeless profile when Chromium is absent
+  const linuxFf = resolveBrowserLaunch({
+    url,
+    appUrl,
+    appMode: "auto",
+    platform: "linux",
+    existsSync: (p) => p === "/usr/bin/firefox",
+    findInPath: () => null,
+    prepareFirefoxProfile: () => "/tmp/ff-profile",
+  });
+  assert.equal(linuxFf.kind, "firefox");
+  assert.equal(linuxFf.cmd, "/usr/bin/firefox");
+  assert.deepEqual(linuxFf.args, ["--no-remote", "--profile", "/tmp/ff-profile", "--name", "kate-md-preview", url]);
+
+  // macOS: falls back to Safari dedicated window via osascript when Chromium & Firefox absent
+  const macSafari = resolveBrowserLaunch({
+    url,
+    appUrl,
+    appMode: "auto",
+    platform: "darwin",
+    existsSync: () => false,
+    findInPath: () => null,
+  });
+  assert.equal(macSafari.kind, "safari");
+  assert.equal(macSafari.cmd, "osascript");
+  assert.equal(macSafari.args[0], "-e");
+  assert.equal(macSafari.args[2], url);
+
+  // Firefox profile creation + live lock overflow handling + stale overflow pruning
+  const tmpCache = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-ff-"));
+  try {
+    const staleOverflow = path.join(tmpCache, "firefox-app-profile-999999-1");
+    fs.mkdirSync(staleOverflow, { recursive: true });
+
+    const p1 = ensureFirefoxAppProfile({ cacheRoot: tmpCache });
+    assert.equal(p1, path.join(tmpCache, "firefox-app-profile"));
+    assert.ok(!fs.existsSync(staleOverflow), "stale unlocked overflow profile should be pruned");
+    assert.match(fs.readFileSync(path.join(p1, "user.js"), "utf8"), /legacyUserProfileCustomizations/);
+    assert.match(fs.readFileSync(path.join(p1, "chrome", "userChrome.css"), "utf8"), /#TabsToolbar/);
+
+    // Simulate active Firefox lock symlink pointing to current live PID
+    fs.symlinkSync(`127.0.1.1:+${process.pid}`, path.join(p1, "lock"));
+    const p2 = ensureFirefoxAppProfile({ cacheRoot: tmpCache });
+    assert.notEqual(p2, p1);
+    assert.ok(fs.existsSync(path.join(p2, "chrome", "userChrome.css")));
+  } finally {
+    fs.rmSync(tmpCache, { recursive: true, force: true });
   }
 });

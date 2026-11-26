@@ -10,8 +10,19 @@ const DEFAULT_ICON_PATH = path.resolve(
 );
 
 const CHROME_APP_ID = "chrome-127.0.0.1__kate-md-preview-Default";
-const DESKTOP_ENTRY_FILENAME = `${CHROME_APP_ID}.desktop`;
-const LEGACY_DESKTOP_FILENAMES = ["kate-md-preview.desktop"];
+const FIREFOX_APP_ID = "kate-md-preview";
+const DESKTOP_ENTRIES = [
+  {
+    name: "Desktop App Window Icon (Chromium)",
+    filename: `${CHROME_APP_ID}.desktop`,
+    wmClass: CHROME_APP_ID,
+  },
+  {
+    name: "Desktop App Window Icon (Firefox)",
+    filename: `${FIREFOX_APP_ID}.desktop`,
+    wmClass: FIREFOX_APP_ID,
+  },
+];
 
 const TOOL_FILES = [
   {
@@ -78,14 +89,17 @@ export function buildKateToolIni({ tool, nodePath, cliPath }) {
   ].join("\n");
 }
 
-export function buildDesktopEntry({ iconPath = DEFAULT_ICON_PATH } = {}) {
+export function buildDesktopEntry({
+  iconPath = DEFAULT_ICON_PATH,
+  wmClass = CHROME_APP_ID,
+} = {}) {
   return [
     "[Desktop Entry]",
     "Type=Application",
     "Name=Markdown Preview",
     "Comment=Local GitHub-style Markdown live preview",
     `Icon=${iconPath}`,
-    `StartupWMClass=${CHROME_APP_ID}`,
+    `StartupWMClass=${wmClass}`,
     "NoDisplay=true",
     "",
   ].join("\n");
@@ -121,23 +135,17 @@ export function installKateTools({
   }
 
   if (applicationsDir) {
-    if (!dryRun) {
-      for (const legacy of LEGACY_DESKTOP_FILENAMES) {
-        const legacyPath = path.join(applicationsDir, legacy);
-        if (fs.existsSync(legacyPath)) {
-          fs.unlinkSync(legacyPath);
-        }
-      }
+    for (const entry of DESKTOP_ENTRIES) {
+      const desktopPath = path.join(applicationsDir, entry.filename);
+      const desktopContent = buildDesktopEntry({ iconPath, wmClass: entry.wmClass });
+      const status = writeIdempotent(desktopPath, desktopContent, { dryRun, mode: 0o644 });
+      results.push({
+        name: entry.name,
+        filePath: desktopPath,
+        content: desktopContent,
+        status,
+      });
     }
-    const desktopPath = path.join(applicationsDir, DESKTOP_ENTRY_FILENAME);
-    const desktopContent = buildDesktopEntry({ iconPath });
-    const status = writeIdempotent(desktopPath, desktopContent, { dryRun, mode: 0o644 });
-    results.push({
-      name: "Desktop App Window Icon",
-      filePath: desktopPath,
-      content: desktopContent,
-      status,
-    });
   }
 
   return results;
@@ -160,8 +168,8 @@ export function uninstallKateTools({
   }
 
   if (applicationsDir) {
-    for (const name of [DESKTOP_ENTRY_FILENAME, ...LEGACY_DESKTOP_FILENAMES]) {
-      const desktopPath = path.join(applicationsDir, name);
+    for (const entry of DESKTOP_ENTRIES) {
+      const desktopPath = path.join(applicationsDir, entry.filename);
       if (fs.existsSync(desktopPath)) {
         if (!dryRun) {
           fs.unlinkSync(desktopPath);

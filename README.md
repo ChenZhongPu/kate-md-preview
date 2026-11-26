@@ -55,8 +55,13 @@ Both `kate-md-preview` and `md-preview` invoke the same CLI:
 # Open in your default web browser (starts/reuses a single local background daemon)
 md-preview README.md
 
-# Open in a frameless app window (Chrome / Chromium / Brave / Edge)
+# Open in an app window (auto: Chromium/Edge/Brave -> Firefox chromeless -> Safari on macOS)
 md-preview --app README.md
+
+# Or explicitly pick the app-window browser
+md-preview --app=firefox README.md
+md-preview --app=chrome README.md
+md-preview --app=safari README.md
 
 # Run in the foreground (stops on Ctrl+C)
 md-preview --foreground README.md
@@ -69,7 +74,12 @@ md-preview --status
 md-preview --stop
 ```
 
-Passing a directory opens its `README.md` if present. Set `KATE_MD_PREVIEW_APP=1` to default to `--app` window mode.
+Passing a directory opens its `README.md` if present. Set `KATE_MD_PREVIEW_APP=1` (or `firefox`, `chrome`, `edge`, `brave`, `safari`) to default to `--app` window mode.
+
+> **How `--app` works across browsers:**
+> - **Chrome / Chromium / Edge / Brave** (Linux, macOS, Windows): native `--app=<url>` chromeless window.
+> - **Firefox** (Linux, macOS, Windows): uses an isolated minimal profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars without touching your everyday Firefox profile; concurrent windows automatically avoid profile lock conflicts.
+> - **Safari** (macOS): opens a dedicated standalone Safari window via AppleScript (`osascript`), since Safari does not provide a native chromeless CLI flag.
 
 ## KDE Kate integration (built-in)
 
@@ -81,7 +91,7 @@ This package includes built-in bindings for **Kate External Tools** (`Tools -> E
 kate-md-preview install-kate
 ```
 
-This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`, plus a hidden desktop entry (`~/.local/share/applications/chrome-127.0.0.1__kate-md-preview-Default.desktop`, `NoDisplay=true`) on Linux so Chromium `--app` windows match Wayland `app_id` and display a crisp vector SVG taskbar icon:
+This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`, plus hidden desktop entries (`chrome-127.0.0.1__kate-md-preview-Default.desktop` and `kate-md-preview.desktop`, both `NoDisplay=true`) on Linux so both Chromium and Firefox `--app` windows match Wayland `app_id` and display a crisp vector SVG taskbar icon:
 
 - **Markdown Preview (GitHub)** — opens the current file in your default browser.
 - **Markdown Preview (GitHub App Window)** — opens a chromeless Chromium-based app window (via the fixed `/kate-md-preview` launcher route) suited for side-by-side tiling with Kate.
