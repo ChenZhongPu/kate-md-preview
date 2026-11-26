@@ -15,7 +15,7 @@ It was originally created as a non-invasive way to upgrade KDE Kate's Markdown p
 - **Live reload without flicker**: Watches the parent directory (handling atomic editor saves) and patches the DOM over SSE while preserving scroll position and open `<details>` elements.
 - **Relative links and assets**: Automatically scopes each session to the enclosing Git repository root (or parent directory), so relative images and links to sibling `.md` files work out of the box.
 - **Auto / Light / Dark themes**: Follows system `prefers-color-scheme` by default and includes a compact segmented icon switcher that also updates `pele` diagram colors.
-- **Collapsible document outline**: Toggleable right-side outline (`Outline` button in the topbar, collapsed by default) with scroll-spy highlighting, live reload sync, and responsive sticky-rail / floating-drawer layout for side-by-side tiling.
+- **Notion-style document outline**: Minimal right-edge TOC bars (collapsed by default, with live scroll-spy highlight) that expand into a right-side outline rail on wide screens or a floating drawer when tiled side-by-side.
 - **Standard / Full width toggle**: Defaults to GitHub's comfortable `1012px` centered reading column, with a one-click full-width toggle (Notion-style) for wide tables, code blocks, and large Mermaid diagrams.
 - **Content zoom controls**: Compact zoom pill (`70%`–`200%`) in the topbar with `Ctrl+=`, `Ctrl+-`, `Ctrl+0`, and `Ctrl+Wheel` support—scales the document cleanly while keeping the topbar and outline crisp.
 - **Standalone & Kate-ready**: Works directly from any terminal or editor, and includes `install-kate` / `uninstall-kate` commands for one-step KDE Kate External Tools setup.

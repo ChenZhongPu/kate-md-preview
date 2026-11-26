@@ -442,27 +442,87 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     }
 
     .outline-toggle {
+      position: fixed;
+      top: 84px;
+      right: 10px;
+      z-index: 25;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      padding: 10px 8px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+      transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+    }
+
+    .outline-toggle[hidden] {
+      display: none;
+    }
+
+    .outline-toggle:hover {
+      background: var(--drawer-bg);
+      border-color: var(--bar-border);
+      backdrop-filter: blur(8px);
+      box-shadow: var(--thumb-shadow);
+    }
+
+    .outline-bar {
+      display: block;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--muted-fg);
+      opacity: 0.34;
+      transition: opacity 0.16s ease, background-color 0.16s ease, width 0.16s ease;
+    }
+
+    .outline-bar.d0 { width: 16px; }
+    .outline-bar.d1 { width: 12px; }
+    .outline-bar.d2 { width: 8px; }
+
+    .outline-toggle:hover .outline-bar {
+      opacity: 0.65;
+    }
+
+    .outline-bar.active,
+    .outline-toggle:hover .outline-bar.active {
+      opacity: 1;
+      background: var(--page-fg);
+    }
+
+    .outline-close {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
       padding: 0;
       border: none;
       border-radius: 5px;
       background: transparent;
       color: var(--muted-fg);
       opacity: 0.65;
-      flex: none;
       cursor: pointer;
       transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
     }
 
-    .outline-toggle:hover,
-    .outline-toggle[aria-expanded="true"] {
+    .outline-close:hover {
       opacity: 1;
-      background: var(--chip-bg);
       color: var(--page-fg);
+      background: var(--chip-bg);
+    }
+
+    .outline-close:focus-visible {
+      outline: 1.5px solid var(--alert-note);
+      outline-offset: 1px;
+    }
+
+    .outline-header-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .width-toggle {
@@ -500,18 +560,18 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     .container {
       max-width: 1012px;
       margin: 0 auto;
-      padding: 32px 32px 64px;
+      padding: 32px 44px 64px 32px;
     }
 
     :root[data-width="wide"] .container {
       max-width: none;
       width: 100%;
-      padding: 32px 48px 64px;
+      padding: 32px 52px 64px 44px;
     }
 
     @media (max-width: 767px) {
       .container,
-      :root[data-width="wide"] .container { padding: 16px 16px 48px; }
+      :root[data-width="wide"] .container { padding: 16px 36px 48px 16px; }
     }
 
     .outline-panel[hidden] {
@@ -740,11 +800,6 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     <div class="topbar-left">
       <span id="status-dot" class="status-dot" title="Live reload connected"></span>
       <span class="filepath" title="${escapeHtml(relPath)}">${escapeHtml(relPath)}</span>
-      <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Toggle document outline" title="Toggle outline">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-          <path d="M2.25 4h.01M5.25 4h8.5M2.25 8h.01M5.25 8h6.5M2.25 12h.01M5.25 12h8.5" />
-        </svg>
-      </button>
       <span class="server-meta">
         <button id="meta-toggle" class="meta-toggle" type="button" aria-expanded="false" aria-controls="server-meta-pill" title="Show server port and PID">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -804,10 +859,18 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     <main class="container">
       <article id="markdown-body" class="markdown-body">${renderedHtml}</article>
     </main>
+    <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Show document outline" title="Show outline" hidden></button>
     <aside id="outline-panel" class="outline-panel" aria-label="Document outline" hidden>
       <div class="outline-header">
-        <span>Outline</span>
-        <span id="outline-count" class="outline-count">0</span>
+        <span class="outline-header-left">
+          <span>Outline</span>
+          <span id="outline-count" class="outline-count">0</span>
+        </span>
+        <button id="outline-close" class="outline-close" type="button" aria-label="Hide document outline" title="Hide outline (Esc)">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
       </div>
       <nav id="outline-nav" class="outline-nav"></nav>
     </aside>
@@ -940,34 +1003,46 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
 
       const pageLayout = document.getElementById("page-layout");
       const outlineToggle = document.getElementById("outline-toggle");
+      const outlineClose = document.getElementById("outline-close");
       const outlinePanel = document.getElementById("outline-panel");
       const outlineNav = document.getElementById("outline-nav");
       const outlineCount = document.getElementById("outline-count");
 
+      const MAX_RAIL_BARS = 22;
       let headingEntries = [];
+      let railBars = [];
       let scrollRaf = 0;
+
+      function syncRailVisibility() {
+        if (!outlineToggle || !outlinePanel) return;
+        const isOpen = !outlinePanel.hidden;
+        outlineToggle.hidden = isOpen || headingEntries.length === 0;
+      }
 
       function setOutlineOpen(open) {
         if (!outlineToggle || !outlinePanel || !pageLayout) return;
         outlineToggle.setAttribute("aria-expanded", String(open));
-        outlineToggle.title = open ? "Hide outline (Esc)" : "Show outline";
         outlinePanel.hidden = !open;
         pageLayout.classList.toggle("outline-open", open);
-        if (open) updateActiveHeading();
+        syncRailVisibility();
+        updateActiveHeading();
       }
 
       function rebuildOutline() {
-        if (!outlineNav || !outlineCount) return;
+        if (!outlineNav || !outlineCount || !outlineToggle) return;
         const headings = Array.from(article.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]"));
         outlineCount.textContent = String(headings.length);
         outlineNav.innerHTML = "";
+        outlineToggle.innerHTML = "";
         headingEntries = [];
+        railBars = [];
 
         if (headings.length === 0) {
           const empty = document.createElement("div");
           empty.className = "outline-empty";
           empty.textContent = "No headings";
           outlineNav.appendChild(empty);
+          syncRailVisibility();
           return;
         }
 
@@ -990,8 +1065,22 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
             setActiveEntry(idx);
           });
           outlineNav.appendChild(link);
-          headingEntries.push({ heading, link });
+          headingEntries.push({ heading, link, depth });
         });
+
+        const barCount = Math.min(headingEntries.length, MAX_RAIL_BARS);
+        for (let b = 0; b < barCount; b++) {
+          const srcIdx = barCount === headingEntries.length
+            ? b
+            : Math.round((b * (headingEntries.length - 1)) / Math.max(barCount - 1, 1));
+          const barDepth = Math.min(headingEntries[srcIdx].depth, 2);
+          const bar = document.createElement("span");
+          bar.className = "outline-bar d" + barDepth;
+          outlineToggle.appendChild(bar);
+          railBars.push(bar);
+        }
+
+        syncRailVisibility();
         updateActiveHeading();
       }
 
@@ -999,6 +1088,14 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
         headingEntries.forEach((entry, i) => {
           entry.link.classList.toggle("active", i === activeIdx);
         });
+        if (railBars.length > 0 && headingEntries.length > 0) {
+          const activeBarIdx = railBars.length === headingEntries.length
+            ? activeIdx
+            : Math.round((activeIdx * (railBars.length - 1)) / Math.max(headingEntries.length - 1, 1));
+          railBars.forEach((bar, i) => {
+            bar.classList.toggle("active", i === activeBarIdx);
+          });
+        }
         const active = headingEntries[activeIdx];
         if (active && outlinePanel && !outlinePanel.hidden) {
           const pRect = outlinePanel.getBoundingClientRect();
@@ -1010,7 +1107,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       }
 
       function updateActiveHeading() {
-        if (!outlinePanel || outlinePanel.hidden || headingEntries.length === 0) return;
+        if (headingEntries.length === 0) return;
         const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8;
         let activeIdx = 0;
         if (nearBottom) {
@@ -1028,11 +1125,27 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       }
 
       if (outlineToggle) {
-        outlineToggle.addEventListener("click", () => {
-          const open = outlineToggle.getAttribute("aria-expanded") === "true";
-          setOutlineOpen(!open);
+        outlineToggle.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          setOutlineOpen(true);
         });
       }
+
+      if (outlineClose) {
+        outlineClose.addEventListener("click", () => setOutlineOpen(false));
+      }
+
+      document.addEventListener("click", (ev) => {
+        if (
+          window.innerWidth < 1280 &&
+          outlinePanel &&
+          !outlinePanel.hidden &&
+          !outlinePanel.contains(ev.target) &&
+          (!outlineToggle || !outlineToggle.contains(ev.target))
+        ) {
+          setOutlineOpen(false);
+        }
+      });
 
       document.addEventListener("keydown", (ev) => {
         if (ev.key === "Escape" && outlinePanel && !outlinePanel.hidden) {
@@ -1041,7 +1154,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       });
 
       window.addEventListener("scroll", () => {
-        if (scrollRaf || !outlinePanel || outlinePanel.hidden) return;
+        if (scrollRaf || headingEntries.length === 0) return;
         scrollRaf = requestAnimationFrame(() => {
           scrollRaf = 0;
           updateActiveHeading();
