@@ -4,6 +4,8 @@ A lightweight, **editor-agnostic** local GitHub-style Markdown live previewer—
 
 It was originally created as a non-invasive way to upgrade KDE Kate's Markdown preview (replacing `QTextBrowser`-based limitations without modifying Kate or system files), while keeping the core completely independent of any editor.
 
+![Kate editing Markdown side-by-side with kate-md-preview](example.png)
+
 ## Features
 
 - **GitHub-accurate rendering**: Uses `markdown-it` + `github-markdown-css` + `highlight.js` with support for raw HTML layouts (`<div align="center">`, `<details>/<summary>`), remote SVG badges, task lists, tables, and GitHub-compatible heading anchors.
