@@ -171,6 +171,8 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
     assert.match(pageHtml, /<h1 id="hello">Hello<\/h1>/);
     assert.match(pageHtml, /href="\/assets\/icon-256\.png"/);
     assert.match(pageHtml, /href="\/manifest\.webmanifest"/);
+    assert.match(pageHtml, /id="meta-toggle"[^>]*aria-expanded="false"/);
+    assert.match(pageHtml, new RegExp(`id="server-meta-pill"[^>]*hidden>[\\s\\S]*port <strong>${instance.port}<\\/strong>[\\s\\S]*pid <strong>${process.pid}<\\/strong>`));
 
     const siblingResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/OTHER.md`);
     assert.equal(siblingResp.status, 200);

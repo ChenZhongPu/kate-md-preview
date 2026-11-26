@@ -113,7 +113,7 @@ const WEB_MANIFEST = JSON.stringify({
   ],
 });
 
-function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml }) {
+function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml, port, pid }) {
   const fragmentUrl = `/api/fragment?session=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(encodedRelPath)}`;
   const eventsUrl = `/api/events?session=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(encodedRelPath)}`;
 
@@ -137,6 +137,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       --page-fg: #1f2328;
       --bar-bg: rgba(246, 248, 250, 0.9);
       --bar-border: #d0d7de;
+      --chip-bg: rgba(175, 184, 193, 0.16);
+      --chip-hover: rgba(175, 184, 193, 0.28);
       --muted-fg: #656d76;
       --alert-note: #0969da;
       --alert-tip: #1a7f37;
@@ -159,6 +161,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
         --page-fg: #e6edf3;
         --bar-bg: rgba(22, 27, 34, 0.9);
         --bar-border: #30363d;
+        --chip-bg: rgba(110, 118, 129, 0.18);
+        --chip-hover: rgba(110, 118, 129, 0.32);
         --muted-fg: #8b949e;
         --alert-note: #4493f8;
         --alert-tip: #3fb950;
@@ -181,6 +185,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       --page-fg: #e6edf3;
       --bar-bg: rgba(22, 27, 34, 0.9);
       --bar-border: #30363d;
+      --chip-bg: rgba(110, 118, 129, 0.18);
+      --chip-hover: rgba(110, 118, 129, 0.32);
       --muted-fg: #8b949e;
       --alert-note: #4493f8;
       --alert-tip: #3fb950;
@@ -244,6 +250,78 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       text-overflow: ellipsis;
       white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .server-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: none;
+    }
+
+    .meta-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted-fg);
+      opacity: 0.62;
+      cursor: pointer;
+      transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .meta-toggle:hover,
+    .meta-toggle[aria-expanded="true"] {
+      opacity: 1;
+      background: var(--chip-bg);
+      color: var(--page-fg);
+    }
+
+    .meta-toggle:focus-visible {
+      outline: 1.5px solid var(--alert-note);
+      outline-offset: 1px;
+    }
+
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--bar-border);
+      background: var(--chip-bg);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.4;
+      color: var(--muted-fg);
+      user-select: text;
+      white-space: nowrap;
+      animation: meta-fade-in 0.14s ease;
+    }
+
+    .meta-pill[hidden] {
+      display: none;
+    }
+
+    .meta-pill strong {
+      font-weight: 500;
+      color: var(--page-fg);
+    }
+
+    .meta-sep {
+      opacity: 0.45;
+      user-select: none;
+    }
+
+    @keyframes meta-fade-in {
+      from { opacity: 0; transform: translateX(-3px); }
+      to { opacity: 1; transform: translateX(0); }
     }
 
     .topbar-actions {
@@ -369,6 +447,20 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     <div class="topbar-left">
       <span id="status-dot" class="status-dot" title="Live reload connected"></span>
       <span class="filepath" title="${escapeHtml(relPath)}">${escapeHtml(relPath)}</span>
+      <span class="server-meta">
+        <button id="meta-toggle" class="meta-toggle" type="button" aria-expanded="false" aria-controls="server-meta-pill" title="Show server port and PID">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.25" />
+            <path d="M8 7.25v3.5" />
+            <circle cx="8" cy="4.85" r="0.6" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
+        <span id="server-meta-pill" class="meta-pill" hidden>
+          <span>port <strong>${escapeHtml(port)}</strong></span>
+          <span class="meta-sep">·</span>
+          <span>pid <strong>${escapeHtml(pid)}</strong></span>
+        </span>
+      </span>
     </div>
     <div class="topbar-actions">
       <button id="theme-btn" class="theme-btn" type="button" title="Toggle theme">Theme: Auto</button>
@@ -413,6 +505,18 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
         const next = modes[(modes.indexOf(cur) + 1) % modes.length];
         applyTheme(next);
       });
+
+      const metaToggle = document.getElementById("meta-toggle");
+      const metaPill = document.getElementById("server-meta-pill");
+      if (metaToggle && metaPill) {
+        metaToggle.addEventListener("click", () => {
+          const expanded = metaToggle.getAttribute("aria-expanded") === "true";
+          const next = !expanded;
+          metaToggle.setAttribute("aria-expanded", String(next));
+          metaToggle.title = next ? "Hide server port and PID" : "Show server port and PID";
+          metaPill.hidden = !next;
+        });
+      }
 
       const dot = document.getElementById("status-dot");
       const article = document.getElementById("markdown-body");
@@ -801,12 +905,15 @@ export function startServer({
       if (isMarkdownFile(targetAbs)) {
         try {
           const { html, title } = readAndRenderFile(targetAbs);
+          const addr = server.address();
           const page = buildPageHtml({
             title,
             relPath: targetRel,
             sessionId,
             encodedRelPath: targetEncodedRel,
             renderedHtml: html,
+            port: addr?.port ?? "",
+            pid: process.pid,
           });
           res.writeHead(200, {
             "Content-Type": "text/html; charset=utf-8",
