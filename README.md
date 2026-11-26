@@ -14,7 +14,8 @@ It was originally created as a non-invasive way to upgrade KDE Kate's Markdown p
 - **Math formulas via KaTeX**: Supports inline `$...$`, display `$$...$$`, and ` ```math ` fenced blocks, with KaTeX stylesheets and fonts served locally (no CDN required).
 - **Live reload without flicker**: Watches the parent directory (handling atomic editor saves) and patches the DOM over SSE while preserving scroll position and open `<details>` elements.
 - **Relative links and assets**: Automatically scopes each session to the enclosing Git repository root (or parent directory), so relative images and links to sibling `.md` files work out of the box.
-- **Auto / Light / Dark themes**: Follows system `prefers-color-scheme` by default and includes a one-click theme toggle that also updates `pele` diagram colors.
+- **Auto / Light / Dark themes**: Follows system `prefers-color-scheme` by default and includes a compact segmented icon switcher that also updates `pele` diagram colors.
+- **Collapsible document outline**: Toggleable right-side outline (`Outline` button in the topbar, collapsed by default) with scroll-spy highlighting, live reload sync, and responsive sticky-rail / floating-drawer layout for side-by-side tiling.
 - **Standalone & Kate-ready**: Works directly from any terminal or editor, and includes `install-kate` / `uninstall-kate` commands for one-step KDE Kate External Tools setup.
 
 ## Requirements

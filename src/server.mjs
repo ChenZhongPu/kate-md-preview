@@ -140,6 +140,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       --chip-bg: rgba(175, 184, 193, 0.16);
       --chip-hover: rgba(175, 184, 193, 0.28);
       --thumb-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
+      --drawer-bg: rgba(255, 255, 255, 0.94);
+      --drawer-shadow: 0 8px 24px rgba(31, 35, 40, 0.12), 0 1px 3px rgba(31, 35, 40, 0.06);
       --muted-fg: #656d76;
       --alert-note: #0969da;
       --alert-tip: #1a7f37;
@@ -165,6 +167,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
         --chip-bg: rgba(110, 118, 129, 0.18);
         --chip-hover: rgba(110, 118, 129, 0.32);
         --thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+        --drawer-bg: rgba(22, 27, 34, 0.94);
+        --drawer-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
         --muted-fg: #8b949e;
         --alert-note: #4493f8;
         --alert-tip: #3fb950;
@@ -190,6 +194,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       --chip-bg: rgba(110, 118, 129, 0.18);
       --chip-hover: rgba(110, 118, 129, 0.32);
       --thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+      --drawer-bg: rgba(22, 27, 34, 0.94);
+      --drawer-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
       --muted-fg: #8b949e;
       --alert-note: #4493f8;
       --alert-tip: #3fb950;
@@ -372,9 +378,42 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       box-shadow: var(--thumb-shadow);
     }
 
-    .theme-opt:focus-visible {
+    .theme-opt:focus-visible,
+    .outline-toggle:focus-visible {
       outline: 1.5px solid var(--alert-note);
       outline-offset: 1px;
+    }
+
+    .outline-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 26px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--bar-border);
+      background: var(--chip-bg);
+      color: var(--muted-fg);
+      opacity: 0.78;
+      cursor: pointer;
+      transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .outline-toggle:hover {
+      opacity: 1;
+      color: var(--page-fg);
+    }
+
+    .outline-toggle[aria-expanded="true"] {
+      opacity: 1;
+      background: var(--page-bg);
+      color: var(--page-fg);
+      box-shadow: var(--thumb-shadow);
+    }
+
+    .page-layout {
+      position: relative;
     }
 
     .container {
@@ -385,6 +424,132 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
 
     @media (max-width: 767px) {
       .container { padding: 16px 16px 48px; }
+    }
+
+    .outline-panel[hidden] {
+      display: none;
+    }
+
+    .outline-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 8px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted-fg);
+    }
+
+    .outline-count {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: var(--chip-bg);
+      color: var(--muted-fg);
+    }
+
+    .outline-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .outline-link {
+      display: block;
+      padding: 4px 8px 4px calc(10px + var(--depth, 0) * 12px);
+      border-left: 2px solid transparent;
+      border-radius: 0 5px 5px 0;
+      font-size: 12.5px;
+      line-height: 1.45;
+      color: var(--muted-fg);
+      text-decoration: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+    }
+
+    .outline-link:hover {
+      color: var(--page-fg);
+      background: var(--chip-bg);
+    }
+
+    .outline-link.active {
+      color: var(--page-fg);
+      font-weight: 500;
+      border-left-color: var(--alert-note);
+      background: var(--chip-bg);
+    }
+
+    .outline-empty {
+      padding: 8px;
+      font-size: 12px;
+      color: var(--muted-fg);
+      opacity: 0.75;
+    }
+
+    @media (min-width: 1280px) {
+      .page-layout.outline-open {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 24px;
+        max-width: 1320px;
+        margin: 0 auto;
+        padding-right: 24px;
+      }
+
+      .page-layout.outline-open .container {
+        flex: 1 1 auto;
+        min-width: 0;
+        margin: 0;
+      }
+
+      .page-layout.outline-open .outline-panel {
+        position: sticky;
+        top: 52px;
+        width: 248px;
+        flex: none;
+        max-height: calc(100vh - 68px);
+        overflow-y: auto;
+        margin-top: 28px;
+        padding: 2px 0 16px 12px;
+        border-left: 1px solid var(--bar-border);
+      }
+    }
+
+    @media (max-width: 1279px) {
+      .outline-panel {
+        position: fixed;
+        top: 44px;
+        right: 14px;
+        z-index: 30;
+        width: min(272px, calc(100vw - 28px));
+        max-height: calc(100vh - 64px);
+        overflow-y: auto;
+        padding: 10px 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--bar-border);
+        background: var(--drawer-bg);
+        backdrop-filter: blur(12px);
+        box-shadow: var(--drawer-shadow);
+        animation: outline-pop 0.14s ease;
+      }
+    }
+
+    @keyframes outline-pop {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .markdown-body [id] {
+      scroll-margin-top: 52px;
     }
 
     .markdown-body { background: transparent !important; }
@@ -497,6 +662,11 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       </span>
     </div>
     <div class="topbar-actions">
+      <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Toggle document outline" title="Toggle outline">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M2.25 4h.01M5.25 4h8.5M2.25 8h.01M5.25 8h6.5M2.25 12h.01M5.25 12h8.5" />
+        </svg>
+      </button>
       <div id="theme-switch" class="theme-switch" role="radiogroup" aria-label="Color theme">
         <button class="theme-opt" type="button" role="radio" data-theme-opt="auto" aria-checked="true" aria-label="System theme" title="Theme: System">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -518,9 +688,18 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       </div>
     </div>
   </header>
-  <main class="container">
-    <article id="markdown-body" class="markdown-body">${renderedHtml}</article>
-  </main>
+  <div id="page-layout" class="page-layout">
+    <main class="container">
+      <article id="markdown-body" class="markdown-body">${renderedHtml}</article>
+    </main>
+    <aside id="outline-panel" class="outline-panel" aria-label="Document outline" hidden>
+      <div class="outline-header">
+        <span>Outline</span>
+        <span id="outline-count" class="outline-count">0</span>
+      </div>
+      <nav id="outline-nav" class="outline-nav"></nav>
+    </aside>
+  </div>
   <script>
     (function () {
       const root = document.documentElement;
@@ -571,6 +750,118 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
 
       const dot = document.getElementById("status-dot");
       const article = document.getElementById("markdown-body");
+      const pageLayout = document.getElementById("page-layout");
+      const outlineToggle = document.getElementById("outline-toggle");
+      const outlinePanel = document.getElementById("outline-panel");
+      const outlineNav = document.getElementById("outline-nav");
+      const outlineCount = document.getElementById("outline-count");
+
+      let headingEntries = [];
+      let scrollRaf = 0;
+
+      function setOutlineOpen(open) {
+        if (!outlineToggle || !outlinePanel || !pageLayout) return;
+        outlineToggle.setAttribute("aria-expanded", String(open));
+        outlineToggle.title = open ? "Hide outline (Esc)" : "Show outline";
+        outlinePanel.hidden = !open;
+        pageLayout.classList.toggle("outline-open", open);
+        if (open) updateActiveHeading();
+      }
+
+      function rebuildOutline() {
+        if (!outlineNav || !outlineCount) return;
+        const headings = Array.from(article.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]"));
+        outlineCount.textContent = String(headings.length);
+        outlineNav.innerHTML = "";
+        headingEntries = [];
+
+        if (headings.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "outline-empty";
+          empty.textContent = "No headings";
+          outlineNav.appendChild(empty);
+          return;
+        }
+
+        const levels = headings.map((h) => Number(h.tagName.slice(1)));
+        const minLevel = Math.min(...levels);
+
+        headings.forEach((heading, idx) => {
+          const depth = Math.min(levels[idx] - minLevel, 4);
+          const text = (heading.textContent || "").trim();
+          const link = document.createElement("a");
+          link.className = "outline-link";
+          link.href = "#" + encodeURIComponent(heading.id);
+          link.textContent = text;
+          link.title = text;
+          link.style.setProperty("--depth", String(depth));
+          link.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            heading.scrollIntoView({ behavior: "smooth", block: "start" });
+            history.replaceState(null, "", "#" + encodeURIComponent(heading.id));
+            setActiveEntry(idx);
+          });
+          outlineNav.appendChild(link);
+          headingEntries.push({ heading, link });
+        });
+        updateActiveHeading();
+      }
+
+      function setActiveEntry(activeIdx) {
+        headingEntries.forEach((entry, i) => {
+          entry.link.classList.toggle("active", i === activeIdx);
+        });
+        const active = headingEntries[activeIdx];
+        if (active && outlinePanel && !outlinePanel.hidden) {
+          const pRect = outlinePanel.getBoundingClientRect();
+          const lRect = active.link.getBoundingClientRect();
+          if (lRect.top < pRect.top + 32 || lRect.bottom > pRect.bottom - 12) {
+            active.link.scrollIntoView({ block: "nearest" });
+          }
+        }
+      }
+
+      function updateActiveHeading() {
+        if (!outlinePanel || outlinePanel.hidden || headingEntries.length === 0) return;
+        const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8;
+        let activeIdx = 0;
+        if (nearBottom) {
+          activeIdx = headingEntries.length - 1;
+        } else {
+          for (let i = 0; i < headingEntries.length; i++) {
+            if (headingEntries[i].heading.getBoundingClientRect().top <= 76) {
+              activeIdx = i;
+            } else {
+              break;
+            }
+          }
+        }
+        setActiveEntry(activeIdx);
+      }
+
+      if (outlineToggle) {
+        outlineToggle.addEventListener("click", () => {
+          const open = outlineToggle.getAttribute("aria-expanded") === "true";
+          setOutlineOpen(!open);
+        });
+      }
+
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape" && outlinePanel && !outlinePanel.hidden) {
+          setOutlineOpen(false);
+        }
+      });
+
+      window.addEventListener("scroll", () => {
+        if (scrollRaf || !outlinePanel || outlinePanel.hidden) return;
+        scrollRaf = requestAnimationFrame(() => {
+          scrollRaf = 0;
+          updateActiveHeading();
+        });
+      }, { passive: true });
+
+      rebuildOutline();
+
       const es = new EventSource(${JSON.stringify(eventsUrl)});
 
       es.addEventListener("open", () => {
@@ -595,6 +886,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
           Array.from(article.querySelectorAll("details")).forEach((d, i) => {
             if (openDetails[i]) d.open = true;
           });
+          rebuildOutline();
           window.scrollTo({ top: scrollY, behavior: "instant" });
         } catch {
           // ignore transient fetch errors
