@@ -379,9 +379,65 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
     }
 
     .theme-opt:focus-visible,
-    .outline-toggle:focus-visible {
+    .outline-toggle:focus-visible,
+    .zoom-btn:focus-visible {
       outline: 1.5px solid var(--alert-note);
       outline-offset: 1px;
+    }
+
+    .zoom-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 1px;
+      height: 26px;
+      padding: 2px;
+      border-radius: 999px;
+      border: 1px solid var(--bar-border);
+      background: var(--chip-bg);
+    }
+
+    .zoom-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted-fg);
+      opacity: 0.72;
+      cursor: pointer;
+      transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .zoom-btn.zoom-step {
+      width: 20px;
+    }
+
+    .zoom-btn.zoom-reset {
+      min-width: 38px;
+      padding: 0 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .zoom-btn.zoom-reset.is-zoomed {
+      color: var(--page-fg);
+      opacity: 1;
+    }
+
+    .zoom-btn:hover:not(:disabled) {
+      opacity: 1;
+      color: var(--page-fg);
+      background: var(--page-bg);
+    }
+
+    .zoom-btn:disabled {
+      opacity: 0.28;
+      cursor: default;
     }
 
     .outline-toggle {
@@ -662,6 +718,19 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       </span>
     </div>
     <div class="topbar-actions">
+      <div id="zoom-control" class="zoom-control" role="group" aria-label="Zoom">
+        <button id="zoom-out" class="zoom-btn zoom-step" type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+            <path d="M3.25 8h9.5" />
+          </svg>
+        </button>
+        <button id="zoom-reset" class="zoom-btn zoom-reset" type="button" aria-label="Reset zoom" title="Reset zoom (Ctrl+0)">100%</button>
+        <button id="zoom-in" class="zoom-btn zoom-step" type="button" aria-label="Zoom in" title="Zoom in (Ctrl+=)">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+            <path d="M8 3.25v9.5M3.25 8h9.5" />
+          </svg>
+        </button>
+      </div>
       <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Toggle document outline" title="Toggle outline">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
           <path d="M2.25 4h.01M5.25 4h8.5M2.25 8h.01M5.25 8h6.5M2.25 12h.01M5.25 12h8.5" />
@@ -750,6 +819,59 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
 
       const dot = document.getElementById("status-dot");
       const article = document.getElementById("markdown-body");
+      const zoomOutBtn = document.getElementById("zoom-out");
+      const zoomInBtn = document.getElementById("zoom-in");
+      const zoomResetBtn = document.getElementById("zoom-reset");
+      const ZOOM_MIN = 70;
+      const ZOOM_MAX = 200;
+      const ZOOM_STEP = 10;
+      let zoomPercent = 100;
+
+      function applyZoom(nextPercent) {
+        const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(nextPercent / ZOOM_STEP) * ZOOM_STEP));
+        zoomPercent = clamped;
+        article.style.zoom = clamped === 100 ? "" : String(clamped / 100);
+        localStorage.setItem("kate-md-zoom", String(clamped));
+        if (zoomResetBtn) {
+          zoomResetBtn.textContent = clamped + "%";
+          zoomResetBtn.classList.toggle("is-zoomed", clamped !== 100);
+        }
+        if (zoomOutBtn) zoomOutBtn.disabled = clamped <= ZOOM_MIN;
+        if (zoomInBtn) zoomInBtn.disabled = clamped >= ZOOM_MAX;
+        updateActiveHeading();
+      }
+
+      if (zoomOutBtn) zoomOutBtn.addEventListener("click", () => applyZoom(zoomPercent - ZOOM_STEP));
+      if (zoomInBtn) zoomInBtn.addEventListener("click", () => applyZoom(zoomPercent + ZOOM_STEP));
+      if (zoomResetBtn) zoomResetBtn.addEventListener("click", () => applyZoom(100));
+
+      document.addEventListener("keydown", (ev) => {
+        if (ev.ctrlKey || ev.metaKey) {
+          if (ev.key === "=" || ev.key === "+") {
+            ev.preventDefault();
+            applyZoom(zoomPercent + ZOOM_STEP);
+            return;
+          }
+          if (ev.key === "-") {
+            ev.preventDefault();
+            applyZoom(zoomPercent - ZOOM_STEP);
+            return;
+          }
+          if (ev.key === "0") {
+            ev.preventDefault();
+            applyZoom(100);
+            return;
+          }
+        }
+      });
+
+      window.addEventListener("wheel", (ev) => {
+        if (ev.ctrlKey || ev.metaKey) {
+          ev.preventDefault();
+          applyZoom(zoomPercent + (ev.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+        }
+      }, { passive: false });
+
       const pageLayout = document.getElementById("page-layout");
       const outlineToggle = document.getElementById("outline-toggle");
       const outlinePanel = document.getElementById("outline-panel");
@@ -861,6 +983,9 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       }, { passive: true });
 
       rebuildOutline();
+
+      const savedZoom = Number(localStorage.getItem("kate-md-zoom"));
+      applyZoom(Number.isFinite(savedZoom) && savedZoom >= ZOOM_MIN && savedZoom <= ZOOM_MAX ? savedZoom : 100);
 
       const es = new EventSource(${JSON.stringify(eventsUrl)});
 

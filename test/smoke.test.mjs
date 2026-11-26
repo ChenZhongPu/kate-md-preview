@@ -179,6 +179,10 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
     assert.match(pageHtml, /data-theme-opt="dark"/);
     assert.match(pageHtml, /id="outline-toggle"[^>]*aria-expanded="false"/);
     assert.match(pageHtml, /id="outline-panel"[^>]*hidden/);
+    assert.match(pageHtml, /id="zoom-control"/);
+    assert.match(pageHtml, /id="zoom-out"/);
+    assert.match(pageHtml, /id="zoom-reset"[^>]*>100%<\/button>/);
+    assert.match(pageHtml, /id="zoom-in"/);
 
     const siblingResp = await fetch(`${origin}${path.posix.dirname(parsed.pathname)}/OTHER.md`);
     assert.equal(siblingResp.status, 200);
