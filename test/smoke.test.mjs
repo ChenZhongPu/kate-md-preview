@@ -177,6 +177,7 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
     assert.match(pageHtml, /data-theme-opt="auto"/);
     assert.match(pageHtml, /data-theme-opt="light"/);
     assert.match(pageHtml, /data-theme-opt="dark"/);
+    assert.match(pageHtml, /id="width-toggle"[^>]*aria-pressed="false"/);
     assert.match(pageHtml, /id="outline-toggle"[^>]*aria-expanded="false"/);
     assert.match(pageHtml, /id="outline-panel"[^>]*hidden/);
     assert.match(pageHtml, /id="zoom-control"/);

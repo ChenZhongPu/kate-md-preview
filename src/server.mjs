@@ -380,6 +380,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
 
     .theme-opt:focus-visible,
     .outline-toggle:focus-visible,
+    .width-toggle:focus-visible,
     .zoom-btn:focus-visible {
       outline: 1.5px solid var(--alert-note);
       outline-offset: 1px;
@@ -440,7 +441,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       cursor: default;
     }
 
-    .outline-toggle {
+    .outline-toggle,
+    .width-toggle {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -456,12 +458,14 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
     }
 
-    .outline-toggle:hover {
+    .outline-toggle:hover,
+    .width-toggle:hover {
       opacity: 1;
       color: var(--page-fg);
     }
 
-    .outline-toggle[aria-expanded="true"] {
+    .outline-toggle[aria-expanded="true"],
+    .width-toggle[aria-pressed="true"] {
       opacity: 1;
       background: var(--page-bg);
       color: var(--page-fg);
@@ -478,8 +482,15 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       padding: 32px 32px 64px;
     }
 
+    :root[data-width="wide"] .container {
+      max-width: none;
+      width: 100%;
+      padding: 32px 48px 64px;
+    }
+
     @media (max-width: 767px) {
-      .container { padding: 16px 16px 48px; }
+      .container,
+      :root[data-width="wide"] .container { padding: 16px 16px 48px; }
     }
 
     .outline-panel[hidden] {
@@ -559,6 +570,12 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
         max-width: 1320px;
         margin: 0 auto;
         padding-right: 24px;
+      }
+
+      :root[data-width="wide"] .page-layout.outline-open {
+        max-width: none;
+        width: 100%;
+        padding-right: 32px;
       }
 
       .page-layout.outline-open .container {
@@ -731,6 +748,11 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
           </svg>
         </button>
       </div>
+      <button id="width-toggle" class="width-toggle" type="button" aria-pressed="false" aria-label="Toggle full width" title="Full width">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 4.75L1.75 8 5 11.25M11 4.75L14.25 8 11 11.25M2.25 8h11.5" />
+        </svg>
+      </button>
       <button id="outline-toggle" class="outline-toggle" type="button" aria-expanded="false" aria-controls="outline-panel" aria-label="Toggle document outline" title="Toggle outline">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
           <path d="M2.25 4h.01M5.25 4h8.5M2.25 8h.01M5.25 8h6.5M2.25 12h.01M5.25 12h8.5" />
@@ -822,6 +844,29 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       const zoomOutBtn = document.getElementById("zoom-out");
       const zoomInBtn = document.getElementById("zoom-in");
       const zoomResetBtn = document.getElementById("zoom-reset");
+      const widthToggle = document.getElementById("width-toggle");
+
+      function applyWidth(mode) {
+        const isWide = mode === "wide";
+        if (isWide) {
+          root.setAttribute("data-width", "wide");
+        } else {
+          root.removeAttribute("data-width");
+        }
+        localStorage.setItem("kate-md-width", isWide ? "wide" : "standard");
+        if (widthToggle) {
+          widthToggle.setAttribute("aria-pressed", String(isWide));
+          widthToggle.title = isWide ? "Standard width" : "Full width";
+        }
+        updateActiveHeading();
+      }
+
+      if (widthToggle) {
+        widthToggle.addEventListener("click", () => {
+          const isWide = root.getAttribute("data-width") === "wide";
+          applyWidth(isWide ? "standard" : "wide");
+        });
+      }
       const ZOOM_MIN = 70;
       const ZOOM_MAX = 200;
       const ZOOM_STEP = 10;
@@ -983,6 +1028,8 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
       }, { passive: true });
 
       rebuildOutline();
+
+      applyWidth(localStorage.getItem("kate-md-width") || "standard");
 
       const savedZoom = Number(localStorage.getItem("kate-md-zoom"));
       applyZoom(Number.isFinite(savedZoom) && savedZoom >= ZOOM_MIN && savedZoom <= ZOOM_MAX ? savedZoom : 100);
