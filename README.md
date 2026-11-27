@@ -1,5 +1,7 @@
 # kate-md-preview
 
+[![npm version](https://img.shields.io/npm/v/kate-md-preview?logo=npm&label=npm)](https://www.npmjs.com/package/kate-md-preview)
+
 A lightweight, **editor-agnostic** local GitHub-style Markdown live previewer—usable both as a **standalone application** (`md-preview` / `kate-md-preview`) and with **built-in KDE Kate integration**.
 
 It was originally created as a non-invasive way to upgrade KDE Kate's Markdown preview (replacing `QTextBrowser`-based limitations without modifying Kate or system files), while keeping the core completely independent of any editor.
