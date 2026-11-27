@@ -104,6 +104,7 @@ async function ensureServer() {
   const child = spawn(process.execPath, [SERVER_SCRIPT], {
     detached: true,
     stdio: "ignore",
+    windowsHide: true,
     env: process.env,
   });
   child.unref();
@@ -296,9 +297,9 @@ async function main() {
     const url = instance.openFile(absFile);
     const appUrl = instance.openAppFile(absFile);
     console.log(url);
-    if (!noOpen) openPreviewUrl({ url, appUrl, appMode });
     process.on("SIGINT", instance.shutdown);
     process.on("SIGTERM", instance.shutdown);
+    if (!noOpen) await openPreviewUrl({ url, appUrl, appMode });
     return;
   }
 
@@ -321,7 +322,7 @@ async function main() {
   console.log(url);
 
   if (!noOpen) {
-    openPreviewUrl({ url, appUrl, appMode });
+    await openPreviewUrl({ url, appUrl, appMode });
   }
 }
 

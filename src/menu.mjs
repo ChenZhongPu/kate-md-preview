@@ -16,6 +16,8 @@ const CHROME_APP_ID = "chrome-127.0.0.1__kate-md-preview-Default";
 const WINDOWS_EXTENSIONS = [".md", ".markdown"];
 const WINDOWS_MENU_KEY = "kate-md-preview";
 const WINDOWS_LABEL = "Markdown Preview";
+const WINDOWS_LAUNCHER = "launch.js";
+const LEGACY_WINDOWS_LAUNCHER = "launch.vbs";
 
 const MAC_APP_NAME = "Markdown Preview.app";
 const MAC_BUNDLE_ID = "io.github.chenzhongpu.kate-md-preview";
@@ -51,8 +53,11 @@ function escapeDesktopArg(value) {
   return `"${String(value).replace(/(["\\$`])/g, "\\$1")}"`;
 }
 
-function escapeVbsString(value) {
-  return String(value).replace(/"/g, '""');
+function windowsScriptString(value) {
+  // Windows Script Host may read scripts using the system ANSI code page.
+  return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (char) =>
+    `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`
+  );
 }
 
 export function buildOpenWithDesktopEntry({
@@ -102,19 +107,15 @@ export function buildDolphinServiceMenu({
   ].join("\n");
 }
 
-export function buildWindowsLauncherVbs({ nodePath, cliPath, useBrowser = false } = {}) {
+function buildWindowsLauncherScript({ nodePath, cliPath, useBrowser }) {
   const modeFlag = useBrowser ? "--browser" : "--app";
-  const escapedNode = escapeVbsString(nodePath);
-  const escapedCli = escapeVbsString(cliPath);
+  const prefix = windowsScriptString(`"${cliPath}" ${modeFlag} "`);
   return [
-    "' Silent launcher for kate-md-preview (avoids flashing a console window)",
-    "If WScript.Arguments.Count >= 1 Then",
-    "  Dim shell, target, cmd",
-    '  Set shell = CreateObject("WScript.Shell")',
-    '  target = Replace(WScript.Arguments(0), """", """""")',
-    `  cmd = """${escapedNode}"" ""${escapedCli}"" ${modeFlag} """ & target & """"`,
-    "  shell.Run cmd, 0, False",
-    "End If",
+    "if (WScript.Arguments.length > 0) {",
+    '  var shell = new ActiveXObject("Shell.Application");',
+    `  var args = ${prefix} + WScript.Arguments.Item(0) + '"';`,
+    `  shell.ShellExecute(${windowsScriptString(nodePath)}, args, "", "open", 0);`,
+    "}",
     "",
   ].join("\r\n");
 }
@@ -260,17 +261,18 @@ export function installWindowsMenu({
   runCommand = defaultRunCommand,
 } = {}) {
   const results = [];
-  const vbsPath = path.join(menuDir, "launch.vbs");
-  const vbsContent = buildWindowsLauncherVbs({ nodePath, cliPath, useBrowser });
-  const vbsStatus = writeIdempotent(vbsPath, vbsContent, { dryRun, mode: null });
+  const launcherPath = path.join(menuDir, WINDOWS_LAUNCHER);
+  const launcherContent = buildWindowsLauncherScript({ nodePath, cliPath, useBrowser });
+  const launcherStatus = writeIdempotent(launcherPath, launcherContent, { dryRun, mode: null });
   results.push({
     name: "Windows Silent Launcher",
-    filePath: vbsPath,
-    content: vbsContent,
-    status: vbsStatus,
+    filePath: launcherPath,
+    content: launcherContent,
+    status: launcherStatus,
   });
 
-  const commandValue = `wscript.exe "${vbsPath}" "%1"`;
+  const wscriptPath = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "wscript.exe");
+  const commandValue = `"${wscriptPath}" //E:JScript "${launcherPath}" "%1"`;
   for (const { ext, shellKey, commandKey } of getWindowsRegistryKeys()) {
     let status = "installed";
     if (!dryRun) {
@@ -301,6 +303,9 @@ export function installWindowsMenu({
     });
   }
 
+  if (!dryRun) {
+    fs.rmSync(path.join(menuDir, LEGACY_WINDOWS_LAUNCHER), { force: true });
+  }
   return results;
 }
 
@@ -315,18 +320,22 @@ export function uninstallWindowsMenu({
     const query = runCommand("reg", ["query", shellKey]);
     if (query?.status === 0) {
       if (!dryRun) {
-        runCommand("reg", ["delete", shellKey, "/f"]);
+        const result = runCommand("reg", ["delete", shellKey, "/f"]);
+        if (result?.status !== 0) {
+          throw new Error(`Failed to delete registry key ${shellKey}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`);
+        }
       }
       removed.push(shellKey);
     }
   }
 
-  const vbsPath = path.join(menuDir, "launch.vbs");
-  if (fs.existsSync(vbsPath)) {
+  for (const name of [WINDOWS_LAUNCHER, LEGACY_WINDOWS_LAUNCHER]) {
+    const launcherPath = path.join(menuDir, name);
+    if (!fs.existsSync(launcherPath)) continue;
     if (!dryRun) {
-      fs.unlinkSync(vbsPath);
+      fs.unlinkSync(launcherPath);
     }
-    removed.push(vbsPath);
+    removed.push(launcherPath);
   }
 
   return removed;

@@ -83,7 +83,7 @@ Passing a directory opens its `README.md` if present. Set `KATE_MD_PREVIEW_APP=1
 
 > **How `--app` works across browsers:**
 > - **Chrome / Chromium / Edge / Brave** (Linux, macOS, Windows): native `--app=<url>` chromeless window.
-> - **Firefox** (Linux, macOS, Windows) uses a dedicated preview profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars. On macOS, all preview windows reuse this profile. On Linux and Windows, concurrent launches use an extra preview profile if the primary one is in use.
+> - **Firefox** (Linux, macOS, Windows) uses a dedicated preview profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars. On macOS and Windows, all preview windows reuse this profile. On Linux, concurrent launches use an extra preview profile if the primary one is in use.
 > - **Safari** (macOS): opens a dedicated standalone Safari window via AppleScript (`osascript`), since Safari does not provide a native chromeless CLI flag.
 
 ## KDE Kate integration (built-in)
@@ -142,7 +142,7 @@ What `install-menu` sets up per platform:
 
 - **Linux**: Installs `~/.local/share/applications/kate-md-preview-open.desktop` (`NoDisplay=true`, `MimeType=text/markdown;` — adds **Markdown Preview** under **Right-click → Open With** in Dolphin, GNOME Files, Thunar, etc.) and `~/.local/share/kio/servicemenus/kate-md-preview.desktop` (`0755` — adds a KDE Dolphin right-click service menu action), without changing your default editor.
 - **macOS**: Uses macOS built-in `osacompile` to generate a lightweight `~/Applications/Markdown Preview.app` wrapper declaring Markdown document types (`net.daringfireball.markdown`, `.md`, `.markdown`), making **Markdown Preview** available in Finder's **Right-click → Open With** menu.
-- **Windows**: Writes a silent `.vbs` launcher under `%LOCALAPPDATA%\kate-md-preview\launch.vbs` (avoiding a console window flash) and registers `HKCU\Software\Classes\SystemFileAssociations\.md` / `.markdown` shell actions (top-level on Windows 10; under **Show more options** on Windows 11).
+- **Windows** uses a JScript launcher at `%LOCALAPPDATA%\kate-md-preview\launch.js` to start previews without a console window. It registers `.md` and `.markdown` shell actions under `HKCU\Software\Classes\SystemFileAssociations`. On Windows 11, find the action under **Show more options**. Running `install-menu` again upgrades older VBScript installations.
 
 Remove all menu entries cleanly at any time:
 

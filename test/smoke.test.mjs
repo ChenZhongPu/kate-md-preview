@@ -5,10 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { renderMarkdown } from "../src/renderer.mjs";
 import { startServer } from "../src/server.mjs";
 import { installKateTools, uninstallKateTools } from "../src/kate.mjs";
 import {
+  getWindowsRegistryKeys,
   installLinuxMenu,
   installMacMenu,
   installWindowsMenu,
@@ -315,6 +317,34 @@ test("browser launcher resolves Windows Edge, Firefox chromeless profile, and ma
   assert.equal(winLaunch.cmd, edgePath);
   assert.deepEqual(winLaunch.args, [`--app=${appUrl}`]);
 
+  const programFiles = "C:\\Program Files";
+  const chromePath = path.win32.join(programFiles, "Google\\Chrome\\Application\\chrome.exe");
+  const chromiumPath = path.win32.join(programFiles, "Chromium\\Application\\chrome.exe");
+  const winOptions = {
+    url: "http://127.0.0.1:41234/s/abc/%E4%B8%AD%20O'Connor.md",
+    platform: "win32",
+    env: { PROGRAMFILES: programFiles },
+    findInPath: () => null,
+  };
+  const chromium = resolveBrowserLaunch({
+    ...winOptions,
+    appMode: "chromium",
+    existsSync: (p) => [chromePath, chromiumPath].includes(p),
+  });
+  assert.equal(chromium.cmd, chromiumPath);
+  assert.throws(() => resolveBrowserLaunch({
+    ...winOptions,
+    appMode: "chromium",
+    existsSync: (p) => p === chromePath,
+  }), /chromium was not found/);
+
+  const winDefault = resolveBrowserLaunch(winOptions);
+  assert.equal(winDefault.kind, "default");
+  assert.equal(path.win32.basename(winDefault.cmd), "powershell.exe");
+  assert.match(winDefault.args.at(-1), /-FilePath \$env:KATE_MD_PREVIEW_OPEN_URL/);
+  assert.ok(winDefault.args.every((argument) => !argument.includes(winOptions.url)));
+  assert.equal(winDefault.env.KATE_MD_PREVIEW_OPEN_URL, winOptions.url);
+
   // Linux: falls back to Firefox chromeless profile when Chromium is absent
   const linuxFf = resolveBrowserLaunch({
     url,
@@ -356,13 +386,18 @@ test("browser launcher resolves Windows Edge, Firefox chromeless profile, and ma
     assert.match(fs.readFileSync(path.join(p1, "user.js"), "utf8"), /legacyUserProfileCustomizations/);
     assert.match(fs.readFileSync(path.join(p1, "chrome", "userChrome.css"), "utf8"), /#TabsToolbar/);
 
-    // Simulate active Firefox lock symlink pointing to current live PID
-    fs.symlinkSync(`127.0.1.1:+${process.pid}`, path.join(p1, "lock"));
+    // Windows hosts can exercise the Linux fallback without symlink privileges.
+    const lockPath = path.join(p1, "lock");
+    if (process.platform === "win32") {
+      fs.writeFileSync(lockPath, "");
+    } else {
+      fs.symlinkSync(`127.0.1.1:+${process.pid}`, lockPath);
+    }
     const p2 = ensureFirefoxAppProfile(linuxProfileOptions);
     assert.notEqual(p2, p1);
     assert.ok(fs.existsSync(path.join(p2, "chrome", "userChrome.css")));
 
-    fs.unlinkSync(path.join(p1, "lock"));
+    fs.unlinkSync(lockPath);
     fs.writeFileSync(path.join(p1, ".parentlock"), "");
     const macFirefoxPath = "/Applications/Firefox.app/Contents/MacOS/firefox";
     const macFirefox = resolveBrowserLaunch({
@@ -376,6 +411,21 @@ test("browser launcher resolves Windows Edge, Firefox chromeless profile, and ma
       kind: "firefox",
       cmd: macFirefoxPath,
       args: ["--profile", p1, "--new-window", url],
+    });
+
+    // Windows Firefox leaves parent.lock behind after releasing the actual lock.
+    fs.writeFileSync(path.join(p1, "parent.lock"), "");
+    const winFirefoxPath = path.win32.join(programFiles, "Mozilla Firefox\\firefox.exe");
+    const winFirefox = resolveBrowserLaunch({
+      ...winOptions,
+      appMode: "firefox",
+      existsSync: (p) => p === winFirefoxPath,
+      prepareFirefoxProfile: () => ensureFirefoxAppProfile({ platform: "win32", cacheRoot: tmpCache }),
+    });
+    assert.deepEqual(winFirefox, {
+      kind: "firefox",
+      cmd: winFirefoxPath,
+      args: ["--profile", p1, "--new-window", winOptions.url],
     });
   } finally {
     fs.rmSync(tmpCache, { recursive: true, force: true });
@@ -406,12 +456,14 @@ test("Linux context menu installer and uninstaller are idempotent with proper pe
     assert.match(openWithText, /^MimeType=text\/markdown;$/m);
     assert.match(openWithText, /^NoDisplay=true$/m);
     assert.match(openWithText, /--app %f$/m);
-    assert.equal(fs.statSync(first[0].filePath).mode & 0o777, 0o644);
 
     const dolphinText = fs.readFileSync(first[1].filePath, "utf8");
     assert.match(dolphinText, /^Type=Service$/m);
     assert.match(dolphinText, /^MimeType=text\/markdown;$/m);
-    assert.equal(fs.statSync(first[1].filePath).mode & 0o777, 0o755);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(first[0].filePath).mode & 0o777, 0o644);
+      assert.equal(fs.statSync(first[1].filePath).mode & 0o777, 0o755);
+    }
 
     // 2nd run: idempotent
     const second = installLinuxMenu({
@@ -466,9 +518,11 @@ test("Linux context menu installer and uninstaller are idempotent with proper pe
   }
 });
 
-test("Windows context menu installer and uninstaller write silent VBS and HKCU registry keys idempotently", () => {
+test("Windows context menu installs JScript, upgrades VBScript, and retains the launcher on registry failures", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-winmenu-"));
   const registry = new Map();
+  let failedWriteKey;
+  let failDelete = false;
 
   const mockReg = (cmd, args) => {
     assert.equal(cmd, "reg");
@@ -481,11 +535,13 @@ test("Windows context menu installer and uninstaller write silent VBS and HKCU r
       return { status: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key" };
     }
     if (op === "add") {
+      if (key === failedWriteKey) return { status: 1, stderr: "Access denied" };
       const valIdx = args.indexOf("/d");
       registry.set(key, valIdx !== -1 ? args[valIdx + 1] : "");
       return { status: 0, stdout: "", stderr: "" };
     }
     if (op === "delete") {
+      if (failDelete) return { status: 1, stderr: "Access denied" };
       for (const k of Array.from(registry.keys())) {
         if (k === key || k.startsWith(`${key}\\`)) registry.delete(k);
       }
@@ -494,36 +550,55 @@ test("Windows context menu installer and uninstaller write silent VBS and HKCU r
     throw new Error(`Unexpected reg op: ${op}`);
   };
 
+  const nodePath = "C:\\Users\\张三\\Node JS\\node.exe";
+  const cliPath = "C:\\Users\\张三\\npm\\Markdown 📘\\bin\\cli.mjs";
+  const documentPath = "C:\\Users\\张三\\%TEMP%\\我的文档.md";
+  const options = { cliPath, nodePath, menuDir: tmpDir, runCommand: mockReg };
   try {
-    const first = installWindowsMenu({
-      cliPath: "C:\\npm\\kate-md-preview\\bin\\cli.mjs",
-      nodePath: "C:\\Program Files\\nodejs\\node.exe",
-      menuDir: tmpDir,
-      runCommand: mockReg,
-    });
+    const first = installWindowsMenu(options);
     assert.equal(first.length, 3);
     assert.ok(first.every((item) => item.status === "installed"));
 
-    const vbsPath = path.join(tmpDir, "launch.vbs");
-    assert.ok(fs.existsSync(vbsPath));
-    const vbs = fs.readFileSync(vbsPath, "utf8");
-    assert.match(vbs, /WScript\.Shell/);
-    assert.match(vbs, /--app/);
-    assert.match(vbs, /shell\.Run cmd, 0, False/);
+    const launcherPath = path.join(tmpDir, "launch.js");
+    const legacyPath = path.join(tmpDir, "launch.vbs");
+    const launcher = fs.readFileSync(launcherPath, "utf8");
+    assert.doesNotMatch(launcher, /[^\x00-\x7f]/);
+    const calls = [];
+    runInNewContext(launcher, {
+      WScript: { Arguments: { length: 1, Item: () => documentPath } },
+      ActiveXObject: function (name) {
+        assert.equal(name, "Shell.Application");
+        this.ShellExecute = (...args) => calls.push(args);
+      },
+    });
+    assert.deepEqual(calls, [[nodePath, `"${cliPath}" --app "${documentPath}"`, "", "open", 0]]);
 
     // 2nd run: idempotent
-    const second = installWindowsMenu({
-      cliPath: "C:\\npm\\kate-md-preview\\bin\\cli.mjs",
-      nodePath: "C:\\Program Files\\nodejs\\node.exe",
-      menuDir: tmpDir,
-      runCommand: mockReg,
-    });
+    const second = installWindowsMenu(options);
     assert.ok(second.every((item) => item.status === "unchanged"));
 
-    // Uninstall twice: 1st removes keys + vbs, 2nd is no-op
+    const keys = getWindowsRegistryKeys();
+    fs.writeFileSync(legacyPath, "legacy launcher");
+    for (const { commandKey } of keys) {
+      registry.set(commandKey, `wscript.exe "${legacyPath}" "%1"`);
+    }
+    failedWriteKey = keys[1].commandKey;
+    assert.throws(() => installWindowsMenu({ ...options, useBrowser: true }), /Access denied/);
+    assert.ok(fs.existsSync(legacyPath));
+    assert.match(registry.get(keys[0].commandKey), /\/\/E:JScript.+launch\.js/);
+    assert.match(registry.get(keys[1].commandKey), /launch\.vbs/);
+    failedWriteKey = undefined;
+    installWindowsMenu({ ...options, useBrowser: true });
+    assert.match(fs.readFileSync(launcherPath, "utf8"), /--browser/);
+    assert.ok(!fs.existsSync(legacyPath));
+
+    failDelete = true;
+    assert.throws(() => uninstallWindowsMenu(options), /Access denied/);
+    assert.ok(fs.existsSync(launcherPath));
+    failDelete = false;
     const removed1 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });
     assert.equal(removed1.length, 3);
-    assert.ok(!fs.existsSync(vbsPath));
+    assert.ok(!fs.existsSync(launcherPath));
     assert.equal(registry.size, 0);
 
     const removed2 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });

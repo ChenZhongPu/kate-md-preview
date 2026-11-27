@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const FIREFOX_APP_CLASS = "kate-md-preview";
 const VALID_APP_MODES = new Set([
@@ -121,20 +125,19 @@ export function findChromiumBrowser({
 
   if (platform === "win32") {
     const roots = getWindowsRoots(env);
-    const relPaths = filterByPreferred([
-      "Google\\Chrome\\Application\\chrome.exe",
-      "Microsoft\\Edge\\Application\\msedge.exe",
-      "BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-      "Chromium\\Application\\chrome.exe",
-    ]);
-    for (const rel of relPaths) {
+    const candidates = [
+      ["chrome", "Google\\Chrome\\Application\\chrome.exe", "chrome.exe"],
+      ["edge", "Microsoft\\Edge\\Application\\msedge.exe", "msedge.exe"],
+      ["brave", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "brave.exe"],
+      ["chromium", "Chromium\\Application\\chrome.exe", "chromium.exe"],
+    ].filter(([mode]) => preferred === "auto" || preferred === mode);
+    for (const [, relativePath] of candidates) {
       for (const root of roots) {
-        const full = path.win32.join(root, rel);
+        const full = path.win32.join(root, relativePath);
         if (existsSync(full)) return full;
       }
     }
-    const exeNames = filterByPreferred(["chrome.exe", "msedge.exe", "brave.exe"]);
-    for (const name of exeNames) {
+    for (const [, , name] of candidates) {
       const found = findInPath(name, env, platform);
       if (found) return found;
     }
@@ -279,8 +282,8 @@ export function ensureFirefoxAppProfile({
 
   const primaryDir = path.join(cacheRoot, "firefox-app-profile");
   let profileDir = primaryDir;
-  // On macOS Firefox can forward new window requests to the running profile.
-  if (platform !== "darwin") {
+  // On macOS and Windows Firefox forwards new window requests to the running profile.
+  if (platform !== "darwin" && platform !== "win32") {
     pruneStaleOverflowProfiles(cacheRoot);
     if (isProfileLocked(primaryDir)) {
       profileDir = path.join(cacheRoot, `firefox-app-profile-${pid}-${Date.now()}`);
@@ -333,7 +336,7 @@ export function resolveBrowserLaunch({
     const bin = findFirefoxBrowser({ platform, env, existsSync, findInPath });
     if (!bin) return null;
     const profileDir = prepareFirefoxProfile();
-    if (platform === "darwin") {
+    if (platform === "darwin" || platform === "win32") {
       return { kind: "firefox", cmd: bin, args: ["--profile", profileDir, "--new-window", url] };
     }
     const args =
@@ -377,17 +380,33 @@ export function resolveBrowserLaunch({
     return { kind: "default", cmd: "open", args: [url] };
   }
   if (platform === "win32") {
-    return { kind: "default", cmd: "cmd", args: ["/c", "start", "", url] };
+    if (mode && mode !== "auto") {
+      throw new Error(`Cannot open an app window: ${mode} was not found on Windows.`);
+    }
+    return {
+      kind: "default",
+      cmd: path.win32.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      args: [
+        "-NoProfile", "-NonInteractive", "-Command",
+        "Start-Process -FilePath $env:KATE_MD_PREVIEW_OPEN_URL -Verb Open -ErrorAction Stop",
+      ],
+      env: { ...env, KATE_MD_PREVIEW_OPEN_URL: url },
+    };
   }
   return { kind: "default", cmd: "xdg-open", args: [url] };
 }
 
-export function openPreviewUrl({ url, appUrl, appMode }) {
+export async function openPreviewUrl({ url, appUrl, appMode }) {
   const launch = resolveBrowserLaunch({ url, appUrl, appMode });
+  if (process.platform === "win32" && launch.kind === "default") {
+    await execFileAsync(launch.cmd, launch.args, { env: launch.env, windowsHide: true });
+    return launch;
+  }
   const child = spawn(launch.cmd, launch.args, {
     detached: true,
     stdio: "ignore",
   });
   child.unref();
+  await once(child, "spawn");
   return launch;
 }
