@@ -653,20 +653,35 @@ test("macOS Finder Open With installer builds .app bundle with Markdown plist id
     assert.equal(second[0].status, "unchanged");
     assert.equal(compileCount, 1);
 
-    // Launcher version 2 generated an icon but still referenced the stock droplet icon.
+    // Launcher version 3 generated an icon with a single 256 x 256 representation.
     const markerPath = path.join(appPath, "Contents", "Resources", "kate-md-preview.json");
     const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
-    fs.writeFileSync(markerPath, JSON.stringify({ ...marker, launcherVersion: 2 }));
+    fs.writeFileSync(markerPath, JSON.stringify({ ...marker, launcherVersion: 3 }));
     const updated = installMacMenu(options);
     assert.equal(updated[0].status, "updated");
     assert.equal(compileCount, 2);
+
+    const icon = fs.readFileSync(path.join(path.dirname(markerPath), "kate-md-preview.icns"));
+    assert.equal(icon.toString("ascii", 0, 4), "icns");
+    assert.equal(icon.readUInt32BE(4), icon.length);
+    const sizes = new Map();
+    for (let offset = 8; offset < icon.length;) {
+      const type = icon.toString("ascii", offset, offset + 4);
+      const chunkSize = icon.readUInt32BE(offset + 4);
+      assert.ok(chunkSize >= 8 && offset + chunkSize <= icon.length);
+      if (icon.toString("ascii", offset + 9, offset + 12) === "PNG") {
+        sizes.set(type, icon.readUInt32BE(offset + 24));
+      }
+      offset += chunkSize;
+    }
+    assert.equal(sizes.get("icp4"), 16);
+    assert.equal(sizes.get("ic11"), 32);
+    assert.equal(sizes.get("ic12"), 64);
     if (process.platform === "darwin") {
       const plistPath = path.join(appPath, "Contents", "Info.plist");
       const plist = JSON.parse(execFileSync("plutil", ["-convert", "json", "-o", "-", plistPath], { encoding: "utf8" }));
       assert.equal(plist.CFBundleIconFile, "kate-md-preview.icns");
       assert.equal(plist.CFBundleIconName, undefined);
-      const icon = fs.readFileSync(path.join(appPath, "Contents", "Resources", plist.CFBundleIconFile));
-      assert.equal(icon.toString("ascii", 0, 4), "icns");
       execFileSync("codesign", ["--verify", "--strict", appPath]);
     }
 

@@ -7,7 +7,6 @@ import { resolveStableNodePath } from "./kate.mjs";
 
 const ASSETS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "assets");
 const DEFAULT_ICON_SVG = path.join(ASSETS_DIR, "icon.svg");
-const DEFAULT_ICON_PNG = path.join(ASSETS_DIR, "icon-256.png");
 
 const OPEN_WITH_FILENAME = "kate-md-preview-open.desktop";
 const DOLPHIN_MENU_FILENAME = "kate-md-preview.desktop";
@@ -22,7 +21,7 @@ const LEGACY_WINDOWS_LAUNCHER = "launch.vbs";
 const MAC_APP_NAME = "Markdown Preview.app";
 const MAC_BUNDLE_ID = "io.github.chenzhongpu.kate-md-preview";
 const MAC_ICON_FILENAME = "kate-md-preview.icns";
-const MAC_LAUNCHER_VERSION = 3;
+const MAC_LAUNCHER_VERSION = 4;
 const MAC_MARKER_REL = path.join("Contents", "Resources", "kate-md-preview.json");
 const MAC_MARKDOWN_UTI = "net.daringfireball.markdown";
 const LSREGISTER_BIN =
@@ -384,7 +383,7 @@ function patchMacInfoPlist(plistPath, runCommand) {
 export function installMacMenu({
   cliPath,
   nodePath = resolveStableNodePath(),
-  iconPngPath = DEFAULT_ICON_PNG,
+  iconPngPath,
   applicationsDir = getMacApplicationsDir(),
   useBrowser = false,
   dryRun = false,
@@ -421,11 +420,15 @@ export function installMacMenu({
       const plistPath = path.join(stagedAppPath, "Contents", "Info.plist");
       patchMacInfoPlist(plistPath, runCommand);
 
-      const icnsPath = path.join(stagedAppPath, "Contents", "Resources", MAC_ICON_FILENAME);
-      runMacCommand(runCommand, "sips", ["-s", "format", "icns", iconPngPath, "--out", icnsPath]);
-
       const stagedMarker = path.join(stagedAppPath, MAC_MARKER_REL);
-      fs.mkdirSync(path.dirname(stagedMarker), { recursive: true });
+      const resourcesDir = path.dirname(stagedMarker);
+      fs.mkdirSync(resourcesDir, { recursive: true });
+      const icnsPath = path.join(resourcesDir, MAC_ICON_FILENAME);
+      if (iconPngPath) {
+        runMacCommand(runCommand, "sips", ["-s", "format", "icns", iconPngPath, "--out", icnsPath]);
+      } else {
+        fs.copyFileSync(path.join(ASSETS_DIR, MAC_ICON_FILENAME), icnsPath);
+      }
       fs.writeFileSync(stagedMarker, desiredMarker, "utf8");
       runMacCommand(runCommand, "codesign", ["--force", "--sign", "-", stagedAppPath]);
 
