@@ -26,6 +26,9 @@ It was originally created as a non-invasive way to upgrade KDE Kate's Markdown p
 
 - Node.js `>= 20`
 
+> [!NOTE]
+> `kate-md-preview` is developed and tested primarily on Linux (KDE Plasma). Testing on macOS and Windows is limited; if you encounter platform-specific issues, please report them via [GitHub Issues](https://github.com/ChenZhongPu/kate-md-preview/issues).
+
 ## Installation
 
 ### From npm (recommended for distribution)
@@ -125,9 +128,9 @@ kate-md-preview uninstall-kate
 
 `uninstall-kate` also supports `--dry-run` and is safe to run repeatedly (it only removes the two `.ini` files and the hidden `.desktop` entries managed by this tool, leaving all other Kate tools intact).
 
-## Linux file manager integration ("Open With" & Dolphin menu)
+## OS file manager integration ("Open With" / context menu)
 
-Register **Markdown Preview** in your Linux desktop's right-click menu for `.md` files (no `sudo` required):
+Register **Markdown Preview** in your system file manager's right-click menu for `.md` / `.markdown` files (user-level only, no `sudo` or administrator privileges required):
 
 ```bash
 kate-md-preview install-menu
@@ -135,18 +138,19 @@ kate-md-preview install-menu
 kate-md-preview install-menu --browser
 ```
 
-This idempotently installs two user-level entries under `~/.local/share/`:
+What `install-menu` sets up per platform:
 
-- `applications/kate-md-preview-open.desktop` (`NoDisplay=true`, `MimeType=text/markdown;`) — adds **Markdown Preview** to **Right-click → Open With** in Dolphin, GNOME Files (Nautilus), Thunar, and other Freedesktop file managers without cluttering your app launcher or changing your default editor.
-- `kio/servicemenus/kate-md-preview.desktop` (`0755`) — adds a top-level **Markdown Preview** action in KDE Dolphin's right-click menu.
+- **Linux**: Installs `~/.local/share/applications/kate-md-preview-open.desktop` (`NoDisplay=true`, `MimeType=text/markdown;` — adds **Markdown Preview** under **Right-click → Open With** in Dolphin, GNOME Files, Thunar, etc.) and `~/.local/share/kio/servicemenus/kate-md-preview.desktop` (`0755` — adds a KDE Dolphin right-click service menu action), without changing your default editor.
+- **macOS**: Uses macOS built-in `osacompile` to generate a lightweight `~/Applications/Markdown Preview.app` wrapper declaring Markdown document types (`net.daringfireball.markdown`, `.md`, `.markdown`), making **Markdown Preview** available in Finder's **Right-click → Open With** menu.
+- **Windows**: Writes a silent `.vbs` launcher under `%LOCALAPPDATA%\kate-md-preview\launch.vbs` (avoiding a console window flash) and registers `HKCU\Software\Classes\SystemFileAssociations\.md` / `.markdown` shell actions (top-level on Windows 10; under **Show more options** on Windows 11).
 
-Remove both cleanly at any time:
+Remove all menu entries cleanly at any time:
 
 ```bash
 kate-md-preview uninstall-menu
 ```
 
-Both `install-menu` and `uninstall-menu` support `--dry-run` and are safe to run repeatedly.
+Both `install-menu` and `uninstall-menu` support `--dry-run` and are idempotent (safe to run repeatedly).
 
 ## Using with other editors
 

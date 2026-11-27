@@ -8,7 +8,14 @@ import { fileURLToPath } from "node:url";
 import { renderMarkdown } from "../src/renderer.mjs";
 import { startServer } from "../src/server.mjs";
 import { installKateTools, uninstallKateTools } from "../src/kate.mjs";
-import { installLinuxMenu, uninstallLinuxMenu } from "../src/menu.mjs";
+import {
+  installLinuxMenu,
+  installMacMenu,
+  installWindowsMenu,
+  uninstallLinuxMenu,
+  uninstallMacMenu,
+  uninstallWindowsMenu,
+} from "../src/menu.mjs";
 import {
   ensureFirefoxAppProfile,
   normalizeAppMode,
@@ -430,5 +437,136 @@ test("Linux context menu installer and uninstaller are idempotent with proper pe
     assert.ok(fs.existsSync(unrelatedDesktop), "unrelated desktop file must remain intact");
   } finally {
     fs.rmSync(tmpData, { recursive: true, force: true });
+  }
+});
+
+test("Windows context menu installer and uninstaller write silent VBS and HKCU registry keys idempotently", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-winmenu-"));
+  const registry = new Map();
+
+  const mockReg = (cmd, args) => {
+    assert.equal(cmd, "reg");
+    const op = args[0];
+    const key = args[1];
+    if (op === "query") {
+      if (registry.has(key)) {
+        return { status: 0, stdout: `    (Default)    REG_SZ    ${registry.get(key)}\r\n`, stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key" };
+    }
+    if (op === "add") {
+      const valIdx = args.indexOf("/d");
+      registry.set(key, valIdx !== -1 ? args[valIdx + 1] : "");
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (op === "delete") {
+      for (const k of Array.from(registry.keys())) {
+        if (k === key || k.startsWith(`${key}\\`)) registry.delete(k);
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    throw new Error(`Unexpected reg op: ${op}`);
+  };
+
+  try {
+    const first = installWindowsMenu({
+      cliPath: "C:\\npm\\kate-md-preview\\bin\\cli.mjs",
+      nodePath: "C:\\Program Files\\nodejs\\node.exe",
+      menuDir: tmpDir,
+      runCommand: mockReg,
+    });
+    assert.equal(first.length, 3);
+    assert.ok(first.every((item) => item.status === "installed"));
+
+    const vbsPath = path.join(tmpDir, "launch.vbs");
+    assert.ok(fs.existsSync(vbsPath));
+    const vbs = fs.readFileSync(vbsPath, "utf8");
+    assert.match(vbs, /WScript\.Shell/);
+    assert.match(vbs, /--app/);
+    assert.match(vbs, /shell\.Run cmd, 0, False/);
+
+    // 2nd run: idempotent
+    const second = installWindowsMenu({
+      cliPath: "C:\\npm\\kate-md-preview\\bin\\cli.mjs",
+      nodePath: "C:\\Program Files\\nodejs\\node.exe",
+      menuDir: tmpDir,
+      runCommand: mockReg,
+    });
+    assert.ok(second.every((item) => item.status === "unchanged"));
+
+    // Uninstall twice: 1st removes keys + vbs, 2nd is no-op
+    const removed1 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });
+    assert.equal(removed1.length, 3);
+    assert.ok(!fs.existsSync(vbsPath));
+    assert.equal(registry.size, 0);
+
+    const removed2 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });
+    assert.equal(removed2.length, 0);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("macOS Finder Open With installer builds .app bundle with Markdown plist idempotently", () => {
+  const tmpApps = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-macmenu-"));
+  let compileCount = 0;
+
+  const mockMacCmd = (cmd, args) => {
+    if (cmd === "osacompile") {
+      compileCount++;
+      const outIdx = args.indexOf("-o");
+      const outApp = args[outIdx + 1];
+      const scriptFile = args[outIdx + 2];
+      assert.match(fs.readFileSync(scriptFile, "utf8"), /on open theFiles/);
+      fs.mkdirSync(path.join(outApp, "Contents", "Resources"), { recursive: true });
+      fs.writeFileSync(
+        path.join(outApp, "Contents", "Info.plist"),
+        '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>CFBundleName</key>\n\t<string>applet</string>\n</dict>\n</plist>\n'
+      );
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (cmd === "plutil" || cmd === "sips" || cmd === "iconutil" || cmd.endsWith("lsregister")) {
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    throw new Error(`Unexpected macOS command: ${cmd}`);
+  };
+
+  try {
+    const first = installMacMenu({
+      cliPath: "/usr/local/lib/node_modules/kate-md-preview/bin/cli.mjs",
+      nodePath: "/usr/local/bin/node",
+      applicationsDir: tmpApps,
+      runCommand: mockMacCmd,
+    });
+    assert.equal(first.length, 1);
+    assert.equal(first[0].status, "installed");
+    assert.equal(compileCount, 1);
+
+    const plist = fs.readFileSync(
+      path.join(tmpApps, "Markdown Preview.app", "Contents", "Info.plist"),
+      "utf8"
+    );
+    assert.match(plist, /net\.daringfireball\.markdown/);
+    assert.match(plist, /<key>LSUIElement<\/key>\s*<true\/>/);
+
+    // 2nd run: idempotent (does not recompile)
+    const second = installMacMenu({
+      cliPath: "/usr/local/lib/node_modules/kate-md-preview/bin/cli.mjs",
+      nodePath: "/usr/local/bin/node",
+      applicationsDir: tmpApps,
+      runCommand: mockMacCmd,
+    });
+    assert.equal(second[0].status, "unchanged");
+    assert.equal(compileCount, 1);
+
+    // Uninstall twice: 1st removes bundle, 2nd is no-op
+    const removed1 = uninstallMacMenu({ applicationsDir: tmpApps, runCommand: mockMacCmd });
+    assert.equal(removed1.length, 1);
+    assert.ok(!fs.existsSync(path.join(tmpApps, "Markdown Preview.app")));
+
+    const removed2 = uninstallMacMenu({ applicationsDir: tmpApps, runCommand: mockMacCmd });
+    assert.equal(removed2.length, 0);
+  } finally {
+    fs.rmSync(tmpApps, { recursive: true, force: true });
   }
 });

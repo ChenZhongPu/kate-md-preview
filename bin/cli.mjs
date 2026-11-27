@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { getStateFilePath, startServer } from "../src/server.mjs";
 import { installKateTools, isEphemeralNpxPath, uninstallKateTools } from "../src/kate.mjs";
-import { installLinuxMenu, uninstallLinuxMenu } from "../src/menu.mjs";
+import { installSystemMenu, uninstallSystemMenu } from "../src/menu.mjs";
 import { normalizeAppMode, openPreviewUrl } from "../src/browser.mjs";
 
 const require = createRequire(import.meta.url);
@@ -180,12 +180,6 @@ async function main() {
   }
 
   if (subcmd === "install-menu") {
-    if (process.platform !== "linux") {
-      console.error(
-        `install-menu currently supports Linux only (detected platform: ${process.platform}).`
-      );
-      process.exit(1);
-    }
     const dryRun = args.includes("--dry-run");
     const useBrowser = args.includes("--browser");
     if (isEphemeralNpxPath(__filename)) {
@@ -193,7 +187,7 @@ async function main() {
         "Warning: running from a temporary npx cache path. For persistent context-menu entries, install globally first: npm install -g kate-md-preview"
       );
     }
-    const items = installLinuxMenu({ cliPath: __filename, useBrowser, dryRun });
+    const items = installSystemMenu({ cliPath: __filename, useBrowser, dryRun });
     let changed = 0;
     for (const item of items) {
       if (item.status === "unchanged") {
@@ -211,24 +205,18 @@ async function main() {
       }
     }
     if (!dryRun && changed > 0) {
-      console.log('Installed Linux "Open With" and KDE Dolphin context menu entries for Markdown files.');
+      console.log("Installed OS right-click menu integration for Markdown files.");
     } else if (!dryRun) {
-      console.log("Linux context menu entries are already up to date.");
+      console.log("OS context menu entries are already up to date.");
     }
     return;
   }
 
   if (subcmd === "uninstall-menu") {
-    if (process.platform !== "linux") {
-      console.error(
-        `uninstall-menu currently supports Linux only (detected platform: ${process.platform}).`
-      );
-      process.exit(1);
-    }
     const dryRun = args.includes("--dry-run");
-    const removed = uninstallLinuxMenu({ dryRun });
+    const removed = uninstallSystemMenu({ dryRun });
     if (removed.length === 0) {
-      console.log("Already uninstalled (no Linux context menu entries found).");
+      console.log("Already uninstalled (no OS context menu entries found).");
     } else {
       for (const f of removed) {
         console.log(`${dryRun ? "[dry-run] Would remove" : "Removed"}: ${f}`);
