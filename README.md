@@ -27,7 +27,7 @@ It was originally created as a non-invasive way to upgrade KDE Kate's Markdown p
 - Node.js `>= 20`
 
 > [!NOTE]
-> `kate-md-preview` is developed and tested primarily on Linux (KDE Plasma). Testing on macOS and Windows is limited; if you encounter platform-specific issues, please report them via [GitHub Issues](https://github.com/ChenZhongPu/kate-md-preview/issues).
+> `kate-md-preview` has been tested on Linux (KDE Plasma) and macOS. Windows testing is limited. If you encounter platform-specific issues, please report them via [GitHub Issues](https://github.com/ChenZhongPu/kate-md-preview/issues).
 
 ## Installation
 
