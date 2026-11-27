@@ -518,9 +518,10 @@ test("Linux context menu installer and uninstaller are idempotent with proper pe
   }
 });
 
-test("Windows context menu installs JScript, upgrades VBScript, and retains the launcher on registry failures", () => {
+test("Windows context menu installs a launcher and icons and upgrades older entries", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-winmenu-"));
   const registry = new Map();
+  const registryIcons = new Map();
   let failedWriteKey;
   let failDelete = false;
 
@@ -528,20 +529,24 @@ test("Windows context menu installs JScript, upgrades VBScript, and retains the 
     assert.equal(cmd, "reg");
     const op = args[0];
     const key = args[1];
+    const isIconValue = args[2] === "/v" && args[3] === "Icon";
+    const values = isIconValue ? registryIcons : registry;
     if (op === "query") {
-      if (registry.has(key)) {
-        return { status: 0, stdout: `    (Default)    REG_SZ    ${registry.get(key)}\r\n`, stderr: "" };
+      if (values.has(key)) {
+        const name = isIconValue ? "Icon" : "(Default)";
+        return { status: 0, stdout: `    ${name}    REG_SZ    ${values.get(key)}\r\n`, stderr: "" };
       }
       return { status: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key" };
     }
     if (op === "add") {
       if (key === failedWriteKey) return { status: 1, stderr: "Access denied" };
       const valIdx = args.indexOf("/d");
-      registry.set(key, valIdx !== -1 ? args[valIdx + 1] : "");
+      values.set(key, valIdx !== -1 ? args[valIdx + 1] : "");
       return { status: 0, stdout: "", stderr: "" };
     }
     if (op === "delete") {
       if (failDelete) return { status: 1, stderr: "Access denied" };
+      registryIcons.delete(key);
       for (const k of Array.from(registry.keys())) {
         if (k === key || k.startsWith(`${key}\\`)) registry.delete(k);
       }
@@ -556,11 +561,20 @@ test("Windows context menu installs JScript, upgrades VBScript, and retains the 
   const options = { cliPath, nodePath, menuDir: tmpDir, runCommand: mockReg };
   try {
     const first = installWindowsMenu(options);
-    assert.equal(first.length, 3);
+    assert.equal(first.length, 4);
     assert.ok(first.every((item) => item.status === "installed"));
 
     const launcherPath = path.join(tmpDir, "launch.js");
     const legacyPath = path.join(tmpDir, "launch.vbs");
+    const iconPath = path.join(tmpDir, "kate-md-preview.ico");
+    const icon = fs.readFileSync(iconPath);
+    assert.equal(icon.readUInt16LE(2), 1);
+    const iconSizes = Array.from({ length: icon.readUInt16LE(4) }, (_, i) => icon[6 + i * 16] || 256);
+    assert.ok(iconSizes.includes(16) && iconSizes.includes(32));
+    const keys = getWindowsRegistryKeys();
+    for (const { shellKey } of keys) {
+      assert.equal(registryIcons.get(shellKey), `"${iconPath}",0`);
+    }
     const launcher = fs.readFileSync(launcherPath, "utf8");
     assert.doesNotMatch(launcher, /[^\x00-\x7f]/);
     const calls = [];
@@ -577,7 +591,16 @@ test("Windows context menu installs JScript, upgrades VBScript, and retains the 
     const second = installWindowsMenu(options);
     assert.ok(second.every((item) => item.status === "unchanged"));
 
-    const keys = getWindowsRegistryKeys();
+    // Existing JScript installations have valid commands but no icon registration.
+    registryIcons.clear();
+    fs.unlinkSync(iconPath);
+    failedWriteKey = keys[0].commandKey;
+    const withIcons = installWindowsMenu(options);
+    assert.equal(withIcons[0].status, "unchanged");
+    assert.deepEqual(withIcons.slice(2).map((item) => item.status), ["updated", "updated"]);
+    assert.deepEqual(fs.readFileSync(iconPath), icon);
+    assert.equal(registryIcons.size, 2);
+
     fs.writeFileSync(legacyPath, "legacy launcher");
     for (const { commandKey } of keys) {
       registry.set(commandKey, `wscript.exe "${legacyPath}" "%1"`);
@@ -595,10 +618,13 @@ test("Windows context menu installs JScript, upgrades VBScript, and retains the 
     failDelete = true;
     assert.throws(() => uninstallWindowsMenu(options), /Access denied/);
     assert.ok(fs.existsSync(launcherPath));
+    assert.ok(fs.existsSync(iconPath));
     failDelete = false;
     const removed1 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });
-    assert.equal(removed1.length, 3);
+    assert.equal(removed1.length, 4);
     assert.ok(!fs.existsSync(launcherPath));
+    assert.ok(!fs.existsSync(iconPath));
+    assert.equal(registryIcons.size, 0);
     assert.equal(registry.size, 0);
 
     const removed2 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });

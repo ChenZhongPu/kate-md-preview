@@ -15,6 +15,7 @@ const CHROME_APP_ID = "chrome-127.0.0.1__kate-md-preview-Default";
 const WINDOWS_EXTENSIONS = [".md", ".markdown"];
 const WINDOWS_MENU_KEY = "kate-md-preview";
 const WINDOWS_LABEL = "Markdown Preview";
+const WINDOWS_ICON_FILENAME = "kate-md-preview.ico";
 const WINDOWS_LAUNCHER = "launch.js";
 const LEGACY_WINDOWS_LAUNCHER = "launch.vbs";
 
@@ -139,23 +140,24 @@ function buildMacLauncherScript({ nodePath, cliPath, useBrowser }) {
 }
 
 function writeIdempotent(filePath, content, { dryRun, mode }) {
+  const data = Buffer.isBuffer(content) ? content : Buffer.from(content);
   let status = "installed";
   if (fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, "utf8");
+    const existing = fs.readFileSync(filePath);
     const currentMode = mode != null ? fs.statSync(filePath).mode & 0o777 : null;
-    status = existing === content && (mode == null || currentMode === mode) ? "unchanged" : "updated";
+    status = existing.equals(data) && (mode == null || currentMode === mode) ? "unchanged" : "updated";
   }
   if (!dryRun && status !== "unchanged") {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     if (mode != null) {
-      fs.writeFileSync(filePath, content, { mode });
+      fs.writeFileSync(filePath, data, { mode });
       try {
         fs.chmodSync(filePath, mode);
       } catch {
         // ignore chmod on non-POSIX filesystems
       }
     } else {
-      fs.writeFileSync(filePath, content);
+      fs.writeFileSync(filePath, data);
     }
   }
   return status;
@@ -251,6 +253,13 @@ export function getWindowsRegistryKeys() {
   }));
 }
 
+function writeWindowsRegistryValue(runCommand, key, valueOptions, value) {
+  const result = runCommand("reg", ["add", key, ...valueOptions, "/t", "REG_SZ", "/d", value, "/f"]);
+  if (result?.status !== 0) {
+    throw new Error(`Failed to write registry key ${key}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`);
+  }
+}
+
 export function installWindowsMenu({
   cliPath,
   nodePath = resolveStableNodePath(),
@@ -270,29 +279,33 @@ export function installWindowsMenu({
     status: launcherStatus,
   });
 
+  const iconPath = path.resolve(menuDir, WINDOWS_ICON_FILENAME);
+  const iconContent = fs.readFileSync(path.join(ASSETS_DIR, WINDOWS_ICON_FILENAME));
+  const iconStatus = writeIdempotent(iconPath, iconContent, { dryRun, mode: null });
+  results.push({ name: "Windows Context Menu Icon", filePath: iconPath, status: iconStatus });
+
   const wscriptPath = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "wscript.exe");
   const commandValue = `"${wscriptPath}" //E:JScript "${launcherPath}" "%1"`;
+  const iconValue = `"${iconPath}",0`;
   for (const { ext, shellKey, commandKey } of getWindowsRegistryKeys()) {
     let status = "installed";
     if (!dryRun) {
       const existingCmd = runCommand("reg", ["query", commandKey, "/ve"]);
-      const alreadyMatches =
+      const existingIcon = runCommand("reg", ["query", shellKey, "/v", "Icon"]);
+      const commandMatches =
         existingCmd?.status === 0 &&
         String(existingCmd.stdout || "").includes(commandValue);
-      if (alreadyMatches) {
-        status = "unchanged";
-      } else {
-        const hadKey = existingCmd?.status === 0;
-        const r1 = runCommand("reg", ["add", shellKey, "/ve", "/t", "REG_SZ", "/d", WINDOWS_LABEL, "/f"]);
-        if (r1?.status !== 0) {
-          throw new Error(`Failed to write registry key ${shellKey}: ${r1?.stderr || r1?.stdout || ""}`);
-        }
-        const r2 = runCommand("reg", ["add", commandKey, "/ve", "/t", "REG_SZ", "/d", commandValue, "/f"]);
-        if (r2?.status !== 0) {
-          throw new Error(`Failed to write registry key ${commandKey}: ${r2?.stderr || r2?.stdout || ""}`);
-        }
-        status = hadKey ? "updated" : "installed";
+      const iconMatches =
+        existingIcon?.status === 0 &&
+        String(existingIcon.stdout || "").includes(iconValue);
+      if (!commandMatches) {
+        writeWindowsRegistryValue(runCommand, shellKey, ["/ve"], WINDOWS_LABEL);
+        writeWindowsRegistryValue(runCommand, commandKey, ["/ve"], commandValue);
       }
+      if (!iconMatches) {
+        writeWindowsRegistryValue(runCommand, shellKey, ["/v", "Icon"], iconValue);
+      }
+      if (existingCmd?.status === 0) status = commandMatches && iconMatches ? "unchanged" : "updated";
     }
     results.push({
       name: `Windows Explorer (${ext})`,
@@ -328,13 +341,13 @@ export function uninstallWindowsMenu({
     }
   }
 
-  for (const name of [WINDOWS_LAUNCHER, LEGACY_WINDOWS_LAUNCHER]) {
-    const launcherPath = path.join(menuDir, name);
-    if (!fs.existsSync(launcherPath)) continue;
+  for (const name of [WINDOWS_LAUNCHER, LEGACY_WINDOWS_LAUNCHER, WINDOWS_ICON_FILENAME]) {
+    const filePath = path.join(menuDir, name);
+    if (!fs.existsSync(filePath)) continue;
     if (!dryRun) {
-      fs.unlinkSync(launcherPath);
+      fs.unlinkSync(filePath);
     }
-    removed.push(launcherPath);
+    removed.push(filePath);
   }
 
   return removed;
