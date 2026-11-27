@@ -227,6 +227,12 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
     assert.equal(iconSvgResp.status, 200);
     assert.equal(iconSvgResp.headers.get("content-type"), "image/svg+xml");
 
+    const faviconResp = await fetch(`${origin}/favicon.ico`);
+    assert.equal(faviconResp.status, 200);
+    assert.equal(faviconResp.headers.get("content-type"), "image/x-icon");
+    const faviconBytes = Buffer.from(await faviconResp.arrayBuffer());
+    assert.equal(faviconBytes.readUInt16LE(2), 1, "/favicon.ico must be a real ICO image");
+
     const manifestResp = await fetch(`${origin}/manifest.webmanifest`);
     assert.equal(manifestResp.status, 200);
     const manifest = await manifestResp.json();
@@ -732,6 +738,10 @@ test("Windows context menu compiles native exe via csc.exe for Open With and fal
     assert.ok(fs.existsSync(exePath));
     assert.ok(!fs.existsSync(oldJscriptPath), "stale launch.js should be removed after exe install");
     assert.equal(regStore.get(ow.progIdCommandKey)?.get(""), `"${exePath}" "%1"`);
+    assert.equal(regStore.get(ow.progIdAppKey)?.get("ApplicationName"), "Markdown Preview");
+    assert.equal(regStore.get(ow.progIdAppKey)?.get("ApplicationIcon"), `"${exePath}",0`);
+    assert.equal(regStore.get(ow.appKey)?.get("ApplicationIcon"), `"${exePath}",0`);
+    assert.equal(regStore.get(ow.appIconKey)?.get(""), `"${exePath}",0`);
     assert.equal(regStore.get(ow.appCommandKey)?.get(""), `"${exePath}" "%1"`);
     assert.ok(regStore.get(ow.openWithProgidsKeys[0].key)?.has(ow.progId));
     assert.ok(regStore.get(ow.openWithProgidsKeys[0].key)?.has("OtherApp.Markdown"));

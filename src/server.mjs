@@ -98,7 +98,7 @@ function resolveAssets() {
     ["/assets/katex/katex.min.css", katexCss],
     ["/assets/icon.svg", path.join(ASSETS_DIR, "icon.svg")],
     ["/assets/icon-256.png", path.join(ASSETS_DIR, "icon-256.png")],
-    ["/favicon.ico", path.join(ASSETS_DIR, "icon-256.png")],
+    ["/favicon.ico", path.join(ASSETS_DIR, "kate-md-preview.ico")],
   ]);
   return { assetMap, katexFontsDir };
 }
@@ -109,6 +109,7 @@ const WEB_MANIFEST = JSON.stringify({
   display: "standalone",
   icons: [
     { src: "/assets/icon-256.png", sizes: "256x256", type: "image/png" },
+    { src: "/favicon.ico", sizes: "16x16 32x32 48x48 256x256", type: "image/x-icon" },
     { src: "/assets/icon.svg", sizes: "any", type: "image/svg+xml" },
   ],
 });
@@ -123,6 +124,7 @@ function buildPageHtml({ title, relPath, sessionId, encodedRelPath, renderedHtml
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)} — Markdown Preview</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png" />
   <link rel="icon" type="image/svg+xml" href="/assets/icon.svg" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -1425,8 +1427,10 @@ export function startServer({
 <head>
   <meta charset="UTF-8" />
   <title>Markdown Preview</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png" />
   <link rel="icon" type="image/svg+xml" href="/assets/icon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <meta http-equiv="refresh" content="0;url=${escapeHtml(target)}" />
 </head>
 <body>

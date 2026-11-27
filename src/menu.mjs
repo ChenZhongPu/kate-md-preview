@@ -348,6 +348,7 @@ export function getWindowsOpenWithKeys() {
   return {
     progId: WINDOWS_PROG_ID,
     progIdKey,
+    progIdAppKey: `${progIdKey}\\Application`,
     progIdIconKey: `${progIdKey}\\DefaultIcon`,
     progIdOpenKey: `${progIdKey}\\shell\\open`,
     progIdCommandKey: `${progIdKey}\\shell\\open\\command`,
@@ -596,17 +597,21 @@ export function installWindowsMenu({
 
   if (useExe) {
     const ow = getWindowsOpenWithKeys();
+    const exeIconValue = `"${exeBuilt.exePath}",0`;
     let openWithStatus = "installed";
     if (!dryRun) {
       const statuses = [
         ensureWindowsRegistryValue(runCommand, ow.progIdKey, ["/ve"], "Markdown Document"),
         ensureWindowsRegistryValue(runCommand, ow.progIdKey, ["/v", "FriendlyTypeName"], "Markdown Document"),
+        ensureWindowsRegistryValue(runCommand, ow.progIdAppKey, ["/v", "ApplicationName"], WINDOWS_LABEL),
+        ensureWindowsRegistryValue(runCommand, ow.progIdAppKey, ["/v", "ApplicationIcon"], exeIconValue),
         ensureWindowsRegistryValue(runCommand, ow.progIdIconKey, ["/ve"], iconValue),
         ensureWindowsRegistryValue(runCommand, ow.progIdOpenKey, ["/v", "FriendlyAppName"], WINDOWS_LABEL),
-        ensureWindowsRegistryValue(runCommand, ow.progIdOpenKey, ["/v", "Icon"], iconValue),
+        ensureWindowsRegistryValue(runCommand, ow.progIdOpenKey, ["/v", "Icon"], exeIconValue),
         ensureWindowsRegistryValue(runCommand, ow.progIdCommandKey, ["/ve"], commandValue),
         ensureWindowsRegistryValue(runCommand, ow.appKey, ["/v", "FriendlyAppName"], WINDOWS_LABEL),
-        ensureWindowsRegistryValue(runCommand, ow.appIconKey, ["/ve"], iconValue),
+        ensureWindowsRegistryValue(runCommand, ow.appKey, ["/v", "ApplicationIcon"], exeIconValue),
+        ensureWindowsRegistryValue(runCommand, ow.appIconKey, ["/ve"], exeIconValue),
         ensureWindowsRegistryValue(runCommand, ow.appCommandKey, ["/ve"], commandValue),
         ...WINDOWS_OPEN_WITH_EXTENSIONS.map((ext) =>
           ensureWindowsRegistryValue(runCommand, ow.appSupportedTypesKey, ["/v", ext], "")
@@ -639,6 +644,15 @@ export function installWindowsMenu({
       }
       fs.rmSync(path.join(menuDir, WINDOWS_EXE_FILENAME), { force: true });
       fs.rmSync(path.join(menuDir, WINDOWS_EXE_MARKER_FILENAME), { force: true });
+    }
+    if (process.platform === "win32" && runCommand === defaultRunCommand && results.some((r) => r.status !== "unchanged")) {
+      try {
+        spawnSync(path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "ie4uinit.exe"), ["-show"], {
+          stdio: "ignore",
+        });
+      } catch {
+        // best-effort Explorer icon cache refresh
+      }
     }
   }
   return results;
