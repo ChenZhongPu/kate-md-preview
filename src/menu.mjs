@@ -19,7 +19,10 @@ const WINDOWS_LABEL = "Markdown Preview";
 
 const MAC_APP_NAME = "Markdown Preview.app";
 const MAC_BUNDLE_ID = "io.github.chenzhongpu.kate-md-preview";
+const MAC_ICON_FILENAME = "kate-md-preview.icns";
+const MAC_LAUNCHER_VERSION = 3;
 const MAC_MARKER_REL = path.join("Contents", "Resources", "kate-md-preview.json");
+const MAC_MARKDOWN_UTI = "net.daringfireball.markdown";
 const LSREGISTER_BIN =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
@@ -46,14 +49,6 @@ export function getMacApplicationsDir(homeDir = os.homedir()) {
 
 function escapeDesktopArg(value) {
   return `"${String(value).replace(/(["\\$`])/g, "\\$1")}"`;
-}
-
-function escapeShellSingleQuote(value) {
-  return `'${String(value).replace(/'/g, "'\\''")}'`;
-}
-
-function escapeAppleScriptString(value) {
-  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function escapeVbsString(value) {
@@ -124,44 +119,22 @@ export function buildWindowsLauncherVbs({ nodePath, cliPath, useBrowser = false 
   ].join("\r\n");
 }
 
-export function buildMacAppleScript({ nodePath, cliPath, useBrowser = false } = {}) {
+function buildMacLauncherScript({ nodePath, cliPath, useBrowser }) {
   const modeFlag = useBrowser ? "--browser" : "--app";
-  const prefix = `${escapeShellSingleQuote(nodePath)} ${escapeShellSingleQuote(cliPath)} ${modeFlag} `;
-  const escapedPrefix = escapeAppleScriptString(prefix);
   return [
-    "on open theFiles",
-    "  repeat with aFile in theFiles",
-    "    set filePath to POSIX path of aFile",
-    `    do shell script "${escapedPrefix}" & quoted form of filePath & " >/dev/null 2>&1 &"`,
-    "  end repeat",
-    "end open",
+    'ObjC.import("Foundation");',
     "",
-  ].join("\n");
-}
-
-export function buildMacDocumentTypesPlistXml() {
-  return [
-    "<array>",
-    "  <dict>",
-    "    <key>CFBundleTypeName</key>",
-    "    <string>Markdown Document</string>",
-    "    <key>CFBundleTypeRole</key>",
-    "    <string>Viewer</string>",
-    "    <key>LSHandlerRank</key>",
-    "    <string>Alternate</string>",
-    "    <key>CFBundleTypeExtensions</key>",
-    "    <array>",
-    "      <string>md</string>",
-    "      <string>markdown</string>",
-    "      <string>mdown</string>",
-    "      <string>mkd</string>",
-    "    </array>",
-    "    <key>LSItemContentTypes</key>",
-    "    <array>",
-    "      <string>net.daringfireball.markdown</string>",
-    "    </array>",
-    "  </dict>",
-    "</array>",
+    "function openDocuments(documents) {",
+    "  for (const document of documents) {",
+    "    const task = $.NSTask.alloc.init;",
+    `    task.executableURL = $.NSURL.fileURLWithPath(${JSON.stringify(nodePath)});`,
+    `    task.arguments = [${JSON.stringify(cliPath)}, ${JSON.stringify(modeFlag)}, document.toString()];`,
+    "    task.standardOutput = $.NSFileHandle.fileHandleWithNullDevice;",
+    "    task.standardError = $.NSFileHandle.fileHandleWithNullDevice;",
+    "    task.launch;",
+    "  }",
+    "}",
+    "",
   ].join("\n");
 }
 
@@ -359,62 +332,44 @@ export function uninstallWindowsMenu({
   return removed;
 }
 
-function tryBuildMacIcns(iconPngPath, targetIcnsPath, runCommand) {
-  if (!fs.existsSync(iconPngPath)) return;
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-icns-"));
-  const iconsetDir = path.join(tmpRoot, "applet.iconset");
-  try {
-    fs.mkdirSync(iconsetDir, { recursive: true });
-    const sizes = [
-      [16, "icon_16x16.png"],
-      [32, "icon_16x16@2x.png"],
-      [32, "icon_32x32.png"],
-      [64, "icon_32x32@2x.png"],
-      [128, "icon_128x128.png"],
-      [256, "icon_128x128@2x.png"],
-      [256, "icon_256x256.png"],
-    ];
-    for (const [size, filename] of sizes) {
-      const r = runCommand("sips", ["-z", String(size), String(size), iconPngPath, "--out", path.join(iconsetDir, filename)]);
-      if (r?.status !== 0) return;
-    }
-    runCommand("iconutil", ["-c", "icns", iconsetDir, "-o", targetIcnsPath]);
-  } catch {
-    // best-effort icon conversion
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+function runMacCommand(runCommand, cmd, args) {
+  const result = runCommand(cmd, args);
+  if (result?.status !== 0) {
+    throw new Error(`${cmd} failed: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`);
   }
 }
 
 function patchMacInfoPlist(plistPath, runCommand) {
-  // Update Info.plist cleanly via plutil XML conversion + standard XML manipulation
-  const toXml = runCommand("plutil", ["-convert", "xml1", plistPath]);
-  if (toXml?.status !== 0 || !fs.existsSync(plistPath)) return;
-
-  let xml = fs.readFileSync(plistPath, "utf8");
-  const upsertSimpleKey = (key, valueTag) => {
-    const re = new RegExp(`<key>${key}</key>\\s*<[^>]+>(?:[\\s\\S]*?</[^>]+>)?`, "m");
-    const replacement = `<key>${key}</key>\n\t${valueTag}`;
-    if (re.test(xml)) {
-      xml = xml.replace(re, replacement);
-    } else {
-      xml = xml.replace(/<\/dict>\s*<\/plist>/, `\t${replacement}\n</dict>\n</plist>`);
-    }
-  };
-
-  upsertSimpleKey("CFBundleIdentifier", `<string>${MAC_BUNDLE_ID}</string>`);
-  upsertSimpleKey("CFBundleName", "<string>Markdown Preview</string>");
-  upsertSimpleKey("LSUIElement", "<true/>");
-
-  const docTypesRe = /<key>CFBundleDocumentTypes<\/key>\s*<array>[\s\S]*?<\/array>/m;
-  const docTypesBlock = `<key>CFBundleDocumentTypes</key>\n${buildMacDocumentTypesPlistXml()}`;
-  if (docTypesRe.test(xml)) {
-    xml = xml.replace(docTypesRe, docTypesBlock);
-  } else {
-    xml = xml.replace(/<\/dict>\s*<\/plist>/, `\t${docTypesBlock}\n</dict>\n</plist>`);
+  const documentTypes = [{
+    CFBundleTypeName: "Markdown Document",
+    CFBundleTypeRole: "Viewer",
+    LSHandlerRank: "Alternate",
+    LSItemContentTypes: [MAC_MARKDOWN_UTI],
+  }];
+  const importedTypes = [{
+    UTTypeIdentifier: MAC_MARKDOWN_UTI,
+    UTTypeDescription: "Markdown Document",
+    UTTypeConformsTo: ["public.utf8-plain-text", "public.content"],
+    UTTypeTagSpecification: {
+      "public.filename-extension": ["md", "markdown", "mdown", "mkd"],
+      "public.mime-type": ["text/markdown"],
+    },
+  }];
+  for (const [key, type, value] of [
+    ["CFBundleIdentifier", "-string", MAC_BUNDLE_ID],
+    ["CFBundleName", "-string", "Markdown Preview"],
+    ["CFBundleVersion", "-string", String(MAC_LAUNCHER_VERSION)],
+    ["CFBundleIconFile", "-string", MAC_ICON_FILENAME],
+    ["LSUIElement", "-bool", "YES"],
+    ["CFBundleDocumentTypes", "-json", JSON.stringify(documentTypes)],
+    ["UTImportedTypeDeclarations", "-json", JSON.stringify(importedTypes)],
+  ]) {
+    runMacCommand(runCommand, "plutil", ["-replace", key, type, value, plistPath]);
   }
-
-  fs.writeFileSync(plistPath, xml, "utf8");
+  const iconName = runCommand("plutil", ["-extract", "CFBundleIconName", "xml1", "-o", "-", plistPath]);
+  if (iconName?.status === 0) {
+    runMacCommand(runCommand, "plutil", ["-remove", "CFBundleIconName", plistPath]);
+  }
 }
 
 export function installMacMenu({
@@ -430,49 +385,49 @@ export function installMacMenu({
   const markerPath = path.join(appPath, MAC_MARKER_REL);
   const desiredMarker = JSON.stringify({
     managedBy: "kate-md-preview",
+    launcherVersion: MAC_LAUNCHER_VERSION,
     nodePath,
     cliPath,
     useBrowser: Boolean(useBrowser),
   });
-  const appleScript = buildMacAppleScript({ nodePath, cliPath, useBrowser });
+  const launcherScript = buildMacLauncherScript({ nodePath, cliPath, useBrowser });
 
   let status = "installed";
   if (fs.existsSync(appPath)) {
-    if (fs.existsSync(markerPath) && fs.readFileSync(markerPath, "utf8") === desiredMarker) {
-      status = "unchanged";
-    } else {
-      status = "updated";
+    if (!fs.existsSync(markerPath)) {
+      throw new Error(`Another application already exists at ${appPath}`);
     }
+    status = fs.readFileSync(markerPath, "utf8") === desiredMarker ? "unchanged" : "updated";
   }
 
   if (!dryRun && status !== "unchanged") {
     fs.mkdirSync(applicationsDir, { recursive: true });
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-mac-"));
-    const scriptPath = path.join(tmpDir, "launcher.applescript");
+    const tmpDir = fs.mkdtempSync(path.join(applicationsDir, ".kate-md-mac-"));
+    const scriptPath = path.join(tmpDir, "launcher.js");
     const stagedAppPath = path.join(tmpDir, MAC_APP_NAME);
     try {
-      fs.writeFileSync(scriptPath, appleScript, "utf8");
-      const compiled = runCommand("osacompile", ["-o", stagedAppPath, scriptPath]);
-      if (compiled?.status !== 0) {
-        throw new Error(
-          `osacompile failed: ${compiled?.stderr || compiled?.stdout || "unknown error"}`
-        );
-      }
+      fs.writeFileSync(scriptPath, launcherScript, "utf8");
+      runMacCommand(runCommand, "osacompile", ["-l", "JavaScript", "-o", stagedAppPath, scriptPath]);
 
       const plistPath = path.join(stagedAppPath, "Contents", "Info.plist");
       patchMacInfoPlist(plistPath, runCommand);
 
-      const icnsPath = path.join(stagedAppPath, "Contents", "Resources", "applet.icns");
-      tryBuildMacIcns(iconPngPath, icnsPath, runCommand);
+      const icnsPath = path.join(stagedAppPath, "Contents", "Resources", MAC_ICON_FILENAME);
+      runMacCommand(runCommand, "sips", ["-s", "format", "icns", iconPngPath, "--out", icnsPath]);
 
       const stagedMarker = path.join(stagedAppPath, MAC_MARKER_REL);
       fs.mkdirSync(path.dirname(stagedMarker), { recursive: true });
       fs.writeFileSync(stagedMarker, desiredMarker, "utf8");
+      runMacCommand(runCommand, "codesign", ["--force", "--sign", "-", stagedAppPath]);
 
-      if (fs.existsSync(appPath)) {
-        fs.rmSync(appPath, { recursive: true, force: true });
+      const previousAppPath = path.join(tmpDir, "previous.app");
+      if (status === "updated") fs.renameSync(appPath, previousAppPath);
+      try {
+        fs.renameSync(stagedAppPath, appPath);
+      } catch (error) {
+        if (status === "updated") fs.renameSync(previousAppPath, appPath);
+        throw error;
       }
-      fs.cpSync(stagedAppPath, appPath, { recursive: true });
 
       try {
         runCommand(LSREGISTER_BIN, ["-f", appPath]);
@@ -488,7 +443,7 @@ export function installMacMenu({
     {
       name: "macOS Finder Open With App",
       filePath: appPath,
-      content: appleScript,
+      content: launcherScript,
       status,
     },
   ];

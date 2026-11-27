@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { renderMarkdown } from "../src/renderer.mjs";
 import { startServer } from "../src/server.mjs";
@@ -157,7 +157,7 @@ test("Kate installer and uninstaller are idempotent and preserve unrelated tools
       encoding: "utf8",
     });
     assert.match(cliUninstall1, /Removed:/);
-    assert.ok(!fs.existsSync(first[2].filePath), "desktop entry must be removed");
+    assert.equal(fs.existsSync(first[2].filePath), process.platform !== "linux");
     const cliUninstall2 = execFileSync(process.execPath, [CLI_PATH, "uninstall-kate"], {
       env,
       encoding: "utf8",
@@ -252,7 +252,7 @@ test("HTTP server serves rendered markdown, assets, fragments, and blocks path t
   }
 });
 
-test("CLI starts isolated daemon, reports status, and stops cleanly", () => {
+test("CLI starts and stops an isolated daemon from an install path with spaces", () => {
   const tmpRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-run-"));
   const tmpDocDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-cli-"));
   const mdFile = path.join(tmpDocDir, "sample.md");
@@ -260,19 +260,27 @@ test("CLI starts isolated daemon, reports status, and stops cleanly", () => {
   const env = { ...process.env, XDG_RUNTIME_DIR: tmpRuntime };
 
   try {
-    const urlOut = execFileSync(process.execPath, [CLI_PATH, "--no-open", mdFile], {
+    const packageRoot = path.resolve(__dirname, "..");
+    const installDir = path.join(tmpRuntime, "Markdown Preview");
+    for (const entry of ["bin", "src", "package.json"]) {
+      fs.cpSync(path.join(packageRoot, entry), path.join(installDir, entry), { recursive: true });
+    }
+    fs.symlinkSync(path.join(packageRoot, "node_modules"), path.join(installDir, "node_modules"), "junction");
+    const cliPath = path.join(installDir, "bin", "cli.mjs");
+
+    const urlOut = execFileSync(process.execPath, [cliPath, "--no-open", mdFile], {
       env,
       encoding: "utf8",
     }).trim();
     assert.match(urlOut, /^http:\/\/127\.0\.0\.1:\d+\/s\/[0-9a-f]+\/sample\.md$/);
 
-    const statusOut = execFileSync(process.execPath, [CLI_PATH, "--status"], {
+    const statusOut = execFileSync(process.execPath, [cliPath, "--status"], {
       env,
       encoding: "utf8",
     });
     assert.match(statusOut, /Running \(pid=\d+/);
 
-    const stopOut = execFileSync(process.execPath, [CLI_PATH, "--stop"], {
+    const stopOut = execFileSync(process.execPath, [cliPath, "--stop"], {
       env,
       encoding: "utf8",
     });
@@ -338,10 +346,11 @@ test("browser launcher resolves Windows Edge, Firefox chromeless profile, and ma
   // Firefox profile creation + live lock overflow handling + stale overflow pruning
   const tmpCache = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-ff-"));
   try {
+    const linuxProfileOptions = { platform: "linux", cacheRoot: tmpCache };
     const staleOverflow = path.join(tmpCache, "firefox-app-profile-999999-1");
     fs.mkdirSync(staleOverflow, { recursive: true });
 
-    const p1 = ensureFirefoxAppProfile({ cacheRoot: tmpCache });
+    const p1 = ensureFirefoxAppProfile(linuxProfileOptions);
     assert.equal(p1, path.join(tmpCache, "firefox-app-profile"));
     assert.ok(!fs.existsSync(staleOverflow), "stale unlocked overflow profile should be pruned");
     assert.match(fs.readFileSync(path.join(p1, "user.js"), "utf8"), /legacyUserProfileCustomizations/);
@@ -349,9 +358,25 @@ test("browser launcher resolves Windows Edge, Firefox chromeless profile, and ma
 
     // Simulate active Firefox lock symlink pointing to current live PID
     fs.symlinkSync(`127.0.1.1:+${process.pid}`, path.join(p1, "lock"));
-    const p2 = ensureFirefoxAppProfile({ cacheRoot: tmpCache });
+    const p2 = ensureFirefoxAppProfile(linuxProfileOptions);
     assert.notEqual(p2, p1);
     assert.ok(fs.existsSync(path.join(p2, "chrome", "userChrome.css")));
+
+    fs.unlinkSync(path.join(p1, "lock"));
+    fs.writeFileSync(path.join(p1, ".parentlock"), "");
+    const macFirefoxPath = "/Applications/Firefox.app/Contents/MacOS/firefox";
+    const macFirefox = resolveBrowserLaunch({
+      url,
+      appMode: "auto",
+      platform: "darwin",
+      existsSync: (p) => p === macFirefoxPath,
+      prepareFirefoxProfile: () => ensureFirefoxAppProfile({ platform: "darwin", cacheRoot: tmpCache }),
+    });
+    assert.deepEqual(macFirefox, {
+      kind: "firefox",
+      cmd: macFirefoxPath,
+      args: ["--profile", p1, "--new-window", url],
+    });
   } finally {
     fs.rmSync(tmpCache, { recursive: true, force: true });
   }
@@ -410,29 +435,30 @@ test("Linux context menu installer and uninstaller are idempotent with proper pe
     assert.ok(third.every((item) => item.status === "updated"));
     assert.match(fs.readFileSync(third[0].filePath, "utf8"), /--browser %f$/m);
 
-    // CLI install-menu / uninstall-menu repeated runs
-    const env = { ...process.env, XDG_DATA_HOME: tmpData };
-    const cliInstall1 = execFileSync(process.execPath, [CLI_PATH, "install-menu"], {
-      env,
-      encoding: "utf8",
-    });
-    assert.match(cliInstall1, /Updated:|Installed:/);
-    const cliInstall2 = execFileSync(process.execPath, [CLI_PATH, "install-menu"], {
-      env,
-      encoding: "utf8",
-    });
-    assert.match(cliInstall2, /already up to date/);
+    if (process.platform === "linux") {
+      const env = { ...process.env, XDG_DATA_HOME: tmpData };
+      const cliInstall1 = execFileSync(process.execPath, [CLI_PATH, "install-menu"], {
+        env,
+        encoding: "utf8",
+      });
+      assert.match(cliInstall1, /Updated:|Installed:/);
+      const cliInstall2 = execFileSync(process.execPath, [CLI_PATH, "install-menu"], {
+        env,
+        encoding: "utf8",
+      });
+      assert.match(cliInstall2, /already up to date/);
 
-    const cliUninstall1 = execFileSync(process.execPath, [CLI_PATH, "uninstall-menu"], {
-      env,
-      encoding: "utf8",
-    });
-    assert.match(cliUninstall1, /Removed:/);
-    const cliUninstall2 = execFileSync(process.execPath, [CLI_PATH, "uninstall-menu"], {
-      env,
-      encoding: "utf8",
-    });
-    assert.match(cliUninstall2, /Already uninstalled/);
+      const cliUninstall1 = execFileSync(process.execPath, [CLI_PATH, "uninstall-menu"], {
+        env,
+        encoding: "utf8",
+      });
+      assert.match(cliUninstall1, /Removed:/);
+      const cliUninstall2 = execFileSync(process.execPath, [CLI_PATH, "uninstall-menu"], {
+        env,
+        encoding: "utf8",
+      });
+      assert.match(cliUninstall2, /Already uninstalled/);
+    }
 
     assert.ok(fs.existsSync(unrelatedDesktop), "unrelated desktop file must remain intact");
   } finally {
@@ -509,62 +535,71 @@ test("Windows context menu installer and uninstaller write silent VBS and HKCU r
 
 test("macOS Finder Open With installer builds .app bundle with Markdown plist idempotently", () => {
   const tmpApps = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-macmenu-"));
+  const plistValues = new Map();
   let compileCount = 0;
+  const cliPath = path.join(tmpApps, 'Path with apostrophe\'s and "quotes"', "cli.mjs");
+  const nodePath = process.execPath;
 
-  const mockMacCmd = (cmd, args) => {
+  const runCommand = (cmd, args) => {
     if (cmd === "osacompile") {
       compileCount++;
-      const outIdx = args.indexOf("-o");
-      const outApp = args[outIdx + 1];
-      const scriptFile = args[outIdx + 2];
-      assert.match(fs.readFileSync(scriptFile, "utf8"), /on open theFiles/);
-      fs.mkdirSync(path.join(outApp, "Contents", "Resources"), { recursive: true });
-      fs.writeFileSync(
-        path.join(outApp, "Contents", "Info.plist"),
-        '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>CFBundleName</key>\n\t<string>applet</string>\n</dict>\n</plist>\n'
-      );
-      return { status: 0, stdout: "", stderr: "" };
+      assert.deepEqual(args.slice(0, 3), ["-l", "JavaScript", "-o"]);
+      const script = fs.readFileSync(args[4], "utf8");
+      assert.match(script, /function openDocuments\(documents\)/);
+      assert.ok(script.includes(JSON.stringify(cliPath)));
     }
-    if (cmd === "plutil" || cmd === "sips" || cmd === "iconutil" || cmd.endsWith("lsregister")) {
-      return { status: 0, stdout: "", stderr: "" };
+    if (cmd === "plutil" && args[0] === "-replace") plistValues.set(args[1], args[3]);
+    if (cmd === "codesign") {
+      assert.ok(fs.existsSync(path.join(args.at(-1), "Contents", "Resources", "kate-md-preview.json")));
     }
-    throw new Error(`Unexpected macOS command: ${cmd}`);
+    if (process.platform === "darwin" && !cmd.endsWith("lsregister")) {
+      return spawnSync(cmd, args, { encoding: "utf8" });
+    }
+    return { status: 0, stdout: "", stderr: "" };
   };
+  const options = { cliPath, nodePath, applicationsDir: tmpApps, runCommand };
 
   try {
-    const first = installMacMenu({
-      cliPath: "/usr/local/lib/node_modules/kate-md-preview/bin/cli.mjs",
-      nodePath: "/usr/local/bin/node",
-      applicationsDir: tmpApps,
-      runCommand: mockMacCmd,
-    });
+    const first = installMacMenu(options);
     assert.equal(first.length, 1);
     assert.equal(first[0].status, "installed");
     assert.equal(compileCount, 1);
 
-    const plist = fs.readFileSync(
-      path.join(tmpApps, "Markdown Preview.app", "Contents", "Info.plist"),
-      "utf8"
-    );
-    assert.match(plist, /net\.daringfireball\.markdown/);
-    assert.match(plist, /<key>LSUIElement<\/key>\s*<true\/>/);
+    const appPath = first[0].filePath;
+    assert.equal(plistValues.get("CFBundleIconFile"), "kate-md-preview.icns");
+    assert.equal(plistValues.get("LSUIElement"), "YES");
+    const [documentType] = JSON.parse(plistValues.get("CFBundleDocumentTypes"));
+    assert.equal(documentType.LSHandlerRank, "Alternate");
+    assert.deepEqual(documentType.LSItemContentTypes, ["net.daringfireball.markdown"]);
+    const [importedType] = JSON.parse(plistValues.get("UTImportedTypeDeclarations"));
+    assert.deepEqual(importedType.UTTypeTagSpecification["public.filename-extension"], ["md", "markdown", "mdown", "mkd"]);
 
-    // 2nd run: idempotent (does not recompile)
-    const second = installMacMenu({
-      cliPath: "/usr/local/lib/node_modules/kate-md-preview/bin/cli.mjs",
-      nodePath: "/usr/local/bin/node",
-      applicationsDir: tmpApps,
-      runCommand: mockMacCmd,
-    });
+    const second = installMacMenu(options);
     assert.equal(second[0].status, "unchanged");
     assert.equal(compileCount, 1);
 
-    // Uninstall twice: 1st removes bundle, 2nd is no-op
-    const removed1 = uninstallMacMenu({ applicationsDir: tmpApps, runCommand: mockMacCmd });
-    assert.equal(removed1.length, 1);
-    assert.ok(!fs.existsSync(path.join(tmpApps, "Markdown Preview.app")));
+    // Launcher version 2 generated an icon but still referenced the stock droplet icon.
+    const markerPath = path.join(appPath, "Contents", "Resources", "kate-md-preview.json");
+    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+    fs.writeFileSync(markerPath, JSON.stringify({ ...marker, launcherVersion: 2 }));
+    const updated = installMacMenu(options);
+    assert.equal(updated[0].status, "updated");
+    assert.equal(compileCount, 2);
+    if (process.platform === "darwin") {
+      const plistPath = path.join(appPath, "Contents", "Info.plist");
+      const plist = JSON.parse(execFileSync("plutil", ["-convert", "json", "-o", "-", plistPath], { encoding: "utf8" }));
+      assert.equal(plist.CFBundleIconFile, "kate-md-preview.icns");
+      assert.equal(plist.CFBundleIconName, undefined);
+      const icon = fs.readFileSync(path.join(appPath, "Contents", "Resources", plist.CFBundleIconFile));
+      assert.equal(icon.toString("ascii", 0, 4), "icns");
+      execFileSync("codesign", ["--verify", "--strict", appPath]);
+    }
 
-    const removed2 = uninstallMacMenu({ applicationsDir: tmpApps, runCommand: mockMacCmd });
+    const removed1 = uninstallMacMenu(options);
+    assert.equal(removed1.length, 1);
+    assert.ok(!fs.existsSync(appPath));
+
+    const removed2 = uninstallMacMenu(options);
     assert.equal(removed2.length, 0);
   } finally {
     fs.rmSync(tmpApps, { recursive: true, force: true });

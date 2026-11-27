@@ -83,7 +83,7 @@ Passing a directory opens its `README.md` if present. Set `KATE_MD_PREVIEW_APP=1
 
 > **How `--app` works across browsers:**
 > - **Chrome / Chromium / Edge / Brave** (Linux, macOS, Windows): native `--app=<url>` chromeless window.
-> - **Firefox** (Linux, macOS, Windows): uses an isolated minimal profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars without touching your everyday Firefox profile; concurrent windows automatically avoid profile lock conflicts.
+> - **Firefox** (Linux, macOS, Windows) uses a dedicated preview profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars. On macOS, all preview windows reuse this profile. On Linux and Windows, concurrent launches use an extra preview profile if the primary one is in use.
 > - **Safari** (macOS): opens a dedicated standalone Safari window via AppleScript (`osascript`), since Safari does not provide a native chromeless CLI flag.
 
 ## KDE Kate integration (built-in)

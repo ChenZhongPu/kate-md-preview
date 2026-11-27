@@ -1654,7 +1654,7 @@ export function startServer({
 }
 
 // Run directly as a background daemon when executed via node src/server.mjs
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   startServer()
     .then(({ port, shutdown }) => {
       process.on("SIGINT", shutdown);

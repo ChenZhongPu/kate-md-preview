@@ -271,17 +271,21 @@ function pruneStaleOverflowProfiles(cacheRoot) {
 }
 
 export function ensureFirefoxAppProfile({
-  cacheRoot = getCacheRoot(),
+  platform = process.platform,
+  cacheRoot = getCacheRoot({ platform }),
   pid = process.pid,
 } = {}) {
   fs.mkdirSync(cacheRoot, { recursive: true });
-  pruneStaleOverflowProfiles(cacheRoot);
 
   const primaryDir = path.join(cacheRoot, "firefox-app-profile");
-  const profileDir =
-    fs.existsSync(primaryDir) && isProfileLocked(primaryDir)
-      ? path.join(cacheRoot, `firefox-app-profile-${pid}-${Date.now()}`)
-      : primaryDir;
+  let profileDir = primaryDir;
+  // On macOS Firefox can forward new window requests to the running profile.
+  if (platform !== "darwin") {
+    pruneStaleOverflowProfiles(cacheRoot);
+    if (isProfileLocked(primaryDir)) {
+      profileDir = path.join(cacheRoot, `firefox-app-profile-${pid}-${Date.now()}`);
+    }
+  }
 
   const chromeDir = path.join(profileDir, "chrome");
   fs.mkdirSync(chromeDir, { recursive: true });
@@ -310,7 +314,7 @@ export function resolveBrowserLaunch({
   env = process.env,
   existsSync = fs.existsSync,
   findInPath = defaultFindInPath,
-  prepareFirefoxProfile = () => ensureFirefoxAppProfile({ cacheRoot: getCacheRoot({ platform, env }) }),
+  prepareFirefoxProfile = () => ensureFirefoxAppProfile({ platform, cacheRoot: getCacheRoot({ platform, env }) }),
 } = {}) {
   const mode = normalizeAppMode(appMode);
 
@@ -329,6 +333,9 @@ export function resolveBrowserLaunch({
     const bin = findFirefoxBrowser({ platform, env, existsSync, findInPath });
     if (!bin) return null;
     const profileDir = prepareFirefoxProfile();
+    if (platform === "darwin") {
+      return { kind: "firefox", cmd: bin, args: ["--profile", profileDir, "--new-window", url] };
+    }
     const args =
       platform === "linux"
         ? ["--no-remote", "--profile", profileDir, "--name", FIREFOX_APP_CLASS, url]
