@@ -207,6 +207,11 @@ async function main() {
     }
     if (!dryRun && changed > 0) {
       console.log("Installed OS right-click menu integration for Markdown files.");
+      if (process.platform === "win32" && !items.some((item) => item.name === "Windows Open With")) {
+        console.log(
+          'Note: .NET csc.exe was unavailable or failed; fell back to the silent JScript launcher (find it under "Show more options" on Windows 11).'
+        );
+      }
     } else if (!dryRun) {
       console.log("OS context menu entries are already up to date.");
     }

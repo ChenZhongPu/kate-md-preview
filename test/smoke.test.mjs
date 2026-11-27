@@ -10,6 +10,8 @@ import { renderMarkdown } from "../src/renderer.mjs";
 import { startServer } from "../src/server.mjs";
 import { installKateTools, uninstallKateTools } from "../src/kate.mjs";
 import {
+  buildWindowsLauncherCSharp,
+  getWindowsOpenWithKeys,
   getWindowsRegistryKeys,
   installLinuxMenu,
   installMacMenu,
@@ -558,7 +560,7 @@ test("Windows context menu installs a launcher and icons and upgrades older entr
   const nodePath = "C:\\Users\\张三\\Node JS\\node.exe";
   const cliPath = "C:\\Users\\张三\\npm\\Markdown 📘\\bin\\cli.mjs";
   const documentPath = "C:\\Users\\张三\\%TEMP%\\我的文档.md";
-  const options = { cliPath, nodePath, menuDir: tmpDir, runCommand: mockReg };
+  const options = { cliPath, nodePath, menuDir: tmpDir, runCommand: mockReg, cscPath: null };
   try {
     const first = installWindowsMenu(options);
     assert.equal(first.length, 4);
@@ -628,6 +630,175 @@ test("Windows context menu installs a launcher and icons and upgrades older entr
     assert.equal(registry.size, 0);
 
     const removed2 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockReg });
+    assert.equal(removed2.length, 0);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Windows context menu compiles native exe via csc.exe for Open With and falls back cleanly on failure", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-winexe-"));
+  // regStore: Map<key, Map<valueName, value>>  (valueName "" represents (Default))
+  const regStore = new Map();
+  let cscCalls = 0;
+  let failCsc = false;
+  const fakeCsc = "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe";
+
+  const setReg = (key, name, val) => {
+    if (!regStore.has(key)) regStore.set(key, new Map());
+    regStore.get(key).set(name, val);
+  };
+
+  const mockCmd = (cmd, args) => {
+    if (cmd === fakeCsc) {
+      cscCalls++;
+      if (failCsc) return { status: 1, stdout: "", stderr: "csc blocked by policy" };
+      assert.ok(args.includes("/target:winexe"));
+      const outArg = args.find((a) => a.startsWith("/out:"));
+      const iconArg = args.find((a) => a.startsWith("/win32icon:"));
+      const csFile = args.at(-1);
+      assert.ok(outArg && iconArg && csFile);
+      assert.ok(fs.existsSync(iconArg.slice("/win32icon:".length)));
+      const csSource = fs.readFileSync(csFile, "utf8");
+      assert.doesNotMatch(csSource, /[^\x00-\x7f]/);
+      assert.match(csSource, /AssemblyTitle\("Markdown Preview"\)/);
+      assert.match(csSource, /CreateNoWindow = true/);
+      fs.writeFileSync(outArg.slice("/out:".length), Buffer.from("MZ-FAKE-WINEXE"));
+      return { status: 0, stdout: "", stderr: "" };
+    }
+
+    assert.equal(cmd, "reg");
+    const op = args[0];
+    const key = args[1];
+    const vIdx = args.indexOf("/v");
+    const valueName = vIdx !== -1 ? args[vIdx + 1] : args.includes("/ve") ? "" : null;
+
+    if (op === "query") {
+      const bucket = regStore.get(key);
+      if (!bucket) return { status: 1, stdout: "", stderr: "not found" };
+      if (valueName === null) return { status: 0, stdout: key, stderr: "" };
+      if (!bucket.has(valueName)) return { status: 1, stdout: "", stderr: "value not found" };
+      const label = valueName === "" ? "(Default)" : valueName;
+      return { status: 0, stdout: `    ${label}    REG_SZ    ${bucket.get(valueName)}\r\n`, stderr: "" };
+    }
+
+    if (op === "add") {
+      const dIdx = args.indexOf("/d");
+      setReg(key, valueName ?? "", dIdx !== -1 ? args[dIdx + 1] : "");
+      return { status: 0, stdout: "", stderr: "" };
+    }
+
+    if (op === "delete") {
+      if (valueName !== null) {
+        const bucket = regStore.get(key);
+        if (bucket) bucket.delete(valueName);
+      } else {
+        for (const k of Array.from(regStore.keys())) {
+          if (k === key || k.startsWith(`${key}\\`)) regStore.delete(k);
+        }
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+
+    throw new Error(`Unexpected command: ${cmd} ${args.join(" ")}`);
+  };
+
+  const nodePath = "C:\\Users\\张三\\nodejs\\node.exe";
+  const cliPath = "C:\\Users\\张三\\npm\\cli.mjs";
+  const ow = getWindowsOpenWithKeys();
+
+  try {
+    // Seed an unrelated app in .md\OpenWithProgids to verify we never clobber it
+    setReg(ow.openWithProgidsKeys[0].key, "OtherApp.Markdown", "");
+    // Seed an old JScript launcher to verify upgrade cleans it up
+    const oldJscriptPath = path.join(tmpDir, "launch.js");
+    fs.writeFileSync(oldJscriptPath, "// old jscript");
+
+    const csSample = buildWindowsLauncherCSharp({ nodePath, cliPath, useBrowser: false });
+    assert.doesNotMatch(csSample, /[^\x00-\x7f]/);
+
+    // 1st install: compiles native exe and registers both shell menu and Open With
+    const first = installWindowsMenu({
+      cliPath,
+      nodePath,
+      menuDir: tmpDir,
+      runCommand: mockCmd,
+      cscPath: fakeCsc,
+    });
+    assert.equal(cscCalls, 1);
+    assert.ok(first.some((r) => r.name === "Windows Native Launcher" && r.status === "installed"));
+    assert.ok(first.some((r) => r.name === "Windows Open With" && r.status === "installed"));
+    const exePath = path.join(tmpDir, "kate-md-preview.exe");
+    assert.ok(fs.existsSync(exePath));
+    assert.ok(!fs.existsSync(oldJscriptPath), "stale launch.js should be removed after exe install");
+    assert.equal(regStore.get(ow.progIdCommandKey)?.get(""), `"${exePath}" "%1"`);
+    assert.equal(regStore.get(ow.appCommandKey)?.get(""), `"${exePath}" "%1"`);
+    assert.ok(regStore.get(ow.openWithProgidsKeys[0].key)?.has(ow.progId));
+    assert.ok(regStore.get(ow.openWithProgidsKeys[0].key)?.has("OtherApp.Markdown"));
+
+    // 2nd install: fully idempotent (does not recompile)
+    const second = installWindowsMenu({
+      cliPath,
+      nodePath,
+      menuDir: tmpDir,
+      runCommand: mockCmd,
+      cscPath: fakeCsc,
+    });
+    assert.equal(cscCalls, 1);
+    assert.ok(second.every((r) => r.status === "unchanged"));
+
+    // Changing --browser recompiles cleanly
+    const third = installWindowsMenu({
+      cliPath,
+      nodePath,
+      menuDir: tmpDir,
+      useBrowser: true,
+      runCommand: mockCmd,
+      cscPath: fakeCsc,
+    });
+    assert.equal(cscCalls, 2);
+    assert.equal(third[0].status, "updated");
+
+    // Automatic fallback when csc.exe fails: writes launch.js and cleans up stale exe + Open With
+    failCsc = true;
+    const fallback = installWindowsMenu({
+      cliPath,
+      nodePath,
+      menuDir: tmpDir,
+      useBrowser: false,
+      runCommand: mockCmd,
+      cscPath: fakeCsc,
+    });
+    assert.ok(fallback.some((r) => r.name === "Windows Silent Launcher"));
+    assert.ok(!fallback.some((r) => r.name === "Windows Open With"));
+    assert.ok(fs.existsSync(path.join(tmpDir, "launch.js")));
+    assert.ok(!fs.existsSync(exePath));
+    assert.ok(!regStore.has(ow.progIdKey));
+    assert.ok(!regStore.get(ow.openWithProgidsKeys[0].key)?.has(ow.progId));
+    assert.ok(regStore.get(ow.openWithProgidsKeys[0].key)?.has("OtherApp.Markdown"));
+
+    // Re-enable csc.exe, install again, then verify uninstall preserves OtherApp.Markdown
+    failCsc = false;
+    installWindowsMenu({
+      cliPath,
+      nodePath,
+      menuDir: tmpDir,
+      runCommand: mockCmd,
+      cscPath: fakeCsc,
+    });
+    const removed1 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockCmd });
+    assert.ok(removed1.length > 0);
+    assert.ok(!fs.existsSync(exePath));
+    assert.ok(!fs.existsSync(path.join(tmpDir, "launcher.json")));
+    assert.ok(!regStore.has(ow.progIdKey));
+    assert.ok(!regStore.has(ow.appKey));
+    assert.ok(!regStore.get(ow.openWithProgidsKeys[0].key)?.has(ow.progId));
+    assert.ok(
+      regStore.get(ow.openWithProgidsKeys[0].key)?.has("OtherApp.Markdown"),
+      "unrelated OpenWithProgids entry must remain intact"
+    );
+
+    const removed2 = uninstallWindowsMenu({ menuDir: tmpDir, runCommand: mockCmd });
     assert.equal(removed2.length, 0);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

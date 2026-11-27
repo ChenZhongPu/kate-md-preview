@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveStableNodePath } from "./kate.mjs";
@@ -13,9 +14,14 @@ const DOLPHIN_MENU_FILENAME = "kate-md-preview.desktop";
 const CHROME_APP_ID = "chrome-127.0.0.1__kate-md-preview-Default";
 
 const WINDOWS_EXTENSIONS = [".md", ".markdown"];
+const WINDOWS_OPEN_WITH_EXTENSIONS = [".md", ".markdown", ".mdown", ".mkd"];
 const WINDOWS_MENU_KEY = "kate-md-preview";
 const WINDOWS_LABEL = "Markdown Preview";
 const WINDOWS_ICON_FILENAME = "kate-md-preview.ico";
+const WINDOWS_EXE_FILENAME = "kate-md-preview.exe";
+const WINDOWS_EXE_MARKER_FILENAME = "launcher.json";
+const WINDOWS_EXE_LAUNCHER_VERSION = 1;
+const WINDOWS_PROG_ID = "KateMdPreview.Markdown";
 const WINDOWS_LAUNCHER = "launch.js";
 const LEGACY_WINDOWS_LAUNCHER = "launch.vbs";
 
@@ -53,11 +59,23 @@ function escapeDesktopArg(value) {
   return `"${String(value).replace(/(["\\$`])/g, "\\$1")}"`;
 }
 
-function windowsScriptString(value) {
-  // Windows Script Host may read scripts using the system ANSI code page.
+function asciiEscapeJsonString(value) {
+  // Keep generated Windows scripts / C# literals pure ASCII so ANSI code pages never corrupt Unicode paths.
   return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (char) =>
     `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
+}
+
+export function findWindowsCsc({ env = process.env, existsSync = fs.existsSync } = {}) {
+  const systemRoot = env.SystemRoot || "C:\\Windows";
+  const candidates = [
+    path.win32.join(systemRoot, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
+    path.win32.join(systemRoot, "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 export function buildOpenWithDesktopEntry({
@@ -109,12 +127,83 @@ export function buildDolphinServiceMenu({
 
 function buildWindowsLauncherScript({ nodePath, cliPath, useBrowser }) {
   const modeFlag = useBrowser ? "--browser" : "--app";
-  const prefix = windowsScriptString(`"${cliPath}" ${modeFlag} "`);
+  const prefix = asciiEscapeJsonString(`"${cliPath}" ${modeFlag} "`);
   return [
     "if (WScript.Arguments.length > 0) {",
     '  var shell = new ActiveXObject("Shell.Application");',
     `  var args = ${prefix} + WScript.Arguments.Item(0) + '"';`,
-    `  shell.ShellExecute(${windowsScriptString(nodePath)}, args, "", "open", 0);`,
+    `  shell.ShellExecute(${asciiEscapeJsonString(nodePath)}, args, "", "open", 0);`,
+    "}",
+    "",
+  ].join("\r\n");
+}
+
+export function buildWindowsLauncherCSharp({ nodePath, cliPath, useBrowser = false } = {}) {
+  const modeFlag = useBrowser ? "--browser" : "--app";
+  return [
+    "using System;",
+    "using System.Diagnostics;",
+    "using System.Reflection;",
+    "using System.Text;",
+    "",
+    `[assembly: AssemblyTitle(${asciiEscapeJsonString(WINDOWS_LABEL)})]`,
+    '[assembly: AssemblyDescription("Local GitHub-style Markdown live preview")]',
+    '[assembly: AssemblyProduct("kate-md-preview")]',
+    "",
+    "internal static class Program",
+    "{",
+    "    private static string QuoteArg(string arg)",
+    "    {",
+    "        var sb = new StringBuilder();",
+    "        sb.Append('\"');",
+    "        int backslashes = 0;",
+    "        for (int i = 0; i < arg.Length; i++)",
+    "        {",
+    "            char c = arg[i];",
+    "            if (c == '\\\\')",
+    "            {",
+    "                backslashes++;",
+    "            }",
+    "            else if (c == '\"')",
+    "            {",
+    "                sb.Append('\\\\', backslashes * 2 + 1);",
+    "                sb.Append('\"');",
+    "                backslashes = 0;",
+    "            }",
+    "            else",
+    "            {",
+    "                if (backslashes > 0)",
+    "                {",
+    "                    sb.Append('\\\\', backslashes);",
+    "                    backslashes = 0;",
+    "                }",
+    "                sb.Append(c);",
+    "            }",
+    "        }",
+    "        if (backslashes > 0) sb.Append('\\\\', backslashes * 2);",
+    "        sb.Append('\"');",
+    "        return sb.ToString();",
+    "    }",
+    "",
+    "    [STAThread]",
+    "    private static void Main(string[] args)",
+    "    {",
+    "        if (args.Length == 0) return;",
+    `        string nodePath = ${asciiEscapeJsonString(nodePath)};`,
+    `        string cliPath = ${asciiEscapeJsonString(cliPath)};`,
+    `        string modeFlag = ${asciiEscapeJsonString(modeFlag)};`,
+    "        foreach (string target in args)",
+    "        {",
+    "            if (string.IsNullOrEmpty(target)) continue;",
+    "            var psi = new ProcessStartInfo();",
+    "            psi.FileName = nodePath;",
+    '            psi.Arguments = QuoteArg(cliPath) + " " + modeFlag + " " + QuoteArg(target);',
+    "            psi.UseShellExecute = false;",
+    "            psi.CreateNoWindow = true;",
+    "            psi.WindowStyle = ProcessWindowStyle.Hidden;",
+    "            try { Process.Start(psi); } catch { }",
+    "        }",
+    "    }",
     "}",
     "",
   ].join("\r\n");
@@ -253,11 +342,173 @@ export function getWindowsRegistryKeys() {
   }));
 }
 
+export function getWindowsOpenWithKeys() {
+  const progIdKey = `HKCU\\Software\\Classes\\${WINDOWS_PROG_ID}`;
+  const appKey = `HKCU\\Software\\Classes\\Applications\\${WINDOWS_EXE_FILENAME}`;
+  return {
+    progId: WINDOWS_PROG_ID,
+    progIdKey,
+    progIdIconKey: `${progIdKey}\\DefaultIcon`,
+    progIdOpenKey: `${progIdKey}\\shell\\open`,
+    progIdCommandKey: `${progIdKey}\\shell\\open\\command`,
+    appKey,
+    appIconKey: `${appKey}\\DefaultIcon`,
+    appCommandKey: `${appKey}\\shell\\open\\command`,
+    appSupportedTypesKey: `${appKey}\\SupportedTypes`,
+    openWithProgidsKeys: WINDOWS_OPEN_WITH_EXTENSIONS.map((ext) => ({
+      ext,
+      key: `HKCU\\Software\\Classes\\${ext}\\OpenWithProgids`,
+    })),
+  };
+}
+
 function writeWindowsRegistryValue(runCommand, key, valueOptions, value) {
   const result = runCommand("reg", ["add", key, ...valueOptions, "/t", "REG_SZ", "/d", value, "/f"]);
   if (result?.status !== 0) {
-    throw new Error(`Failed to write registry key ${key}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`);
+    throw new Error(
+      `Failed to write registry key ${key}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`
+    );
   }
+}
+
+function queryWindowsRegistryValue(runCommand, key, valueOptions) {
+  return runCommand("reg", ["query", key, ...valueOptions]);
+}
+
+function ensureWindowsRegistryValue(runCommand, key, valueOptions, value) {
+  const existing = queryWindowsRegistryValue(runCommand, key, valueOptions);
+  const exists = existing?.status === 0;
+  if (exists && (value === "" || String(existing.stdout || "").includes(value))) {
+    return "unchanged";
+  }
+  writeWindowsRegistryValue(runCommand, key, valueOptions, value);
+  return exists ? "updated" : "installed";
+}
+
+function deleteWindowsRegistryKey(runCommand, key, { dryRun = false } = {}) {
+  const query = runCommand("reg", ["query", key]);
+  if (query?.status !== 0) return false;
+  if (!dryRun) {
+    const result = runCommand("reg", ["delete", key, "/f"]);
+    if (result?.status !== 0) {
+      throw new Error(
+        `Failed to delete registry key ${key}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`
+      );
+    }
+  }
+  return true;
+}
+
+function deleteWindowsRegistryValue(runCommand, key, valueName, { dryRun = false } = {}) {
+  const query = runCommand("reg", ["query", key, "/v", valueName]);
+  if (query?.status !== 0) return false;
+  if (!dryRun) {
+    const result = runCommand("reg", ["delete", key, "/v", valueName, "/f"]);
+    if (result?.status !== 0) {
+      throw new Error(
+        `Failed to delete registry value ${key}\\${valueName}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`
+      );
+    }
+  }
+  return true;
+}
+
+function tryBuildWindowsExeLauncher({
+  cscPath,
+  menuDir,
+  iconPath,
+  iconHash,
+  nodePath,
+  cliPath,
+  useBrowser,
+  dryRun,
+  runCommand,
+}) {
+  if (!cscPath) return null;
+
+  const exePath = path.join(menuDir, WINDOWS_EXE_FILENAME);
+  const markerPath = path.join(menuDir, WINDOWS_EXE_MARKER_FILENAME);
+  const desiredMarker = JSON.stringify({
+    managedBy: "kate-md-preview",
+    launcherVersion: WINDOWS_EXE_LAUNCHER_VERSION,
+    nodePath,
+    cliPath,
+    useBrowser: Boolean(useBrowser),
+    iconHash,
+  });
+  const csSource = buildWindowsLauncherCSharp({ nodePath, cliPath, useBrowser });
+
+  let status = "installed";
+  if (fs.existsSync(exePath)) {
+    status =
+      fs.existsSync(markerPath) && fs.readFileSync(markerPath, "utf8") === desiredMarker
+        ? "unchanged"
+        : "updated";
+  }
+
+  if (dryRun || status === "unchanged") {
+    return { exePath, markerPath, csSource, status };
+  }
+
+  fs.mkdirSync(menuDir, { recursive: true });
+  const tmpDir = fs.mkdtempSync(path.join(menuDir, ".kate-md-win-"));
+  const csPath = path.join(tmpDir, "launcher.cs");
+  const stagedExePath = path.join(tmpDir, WINDOWS_EXE_FILENAME);
+  try {
+    fs.writeFileSync(csPath, csSource, "utf8");
+    const cscArgs = [
+      "/nologo",
+      "/target:winexe",
+      "/optimize+",
+      `/win32icon:${iconPath}`,
+      `/out:${stagedExePath}`,
+      csPath,
+    ];
+    const compiled = runCommand(cscPath, cscArgs);
+    if (compiled?.status !== 0 || !fs.existsSync(stagedExePath)) {
+      return null;
+    }
+
+    const previousExePath = path.join(tmpDir, "previous.exe");
+    const hadPrevious = fs.existsSync(exePath);
+    if (hadPrevious) fs.renameSync(exePath, previousExePath);
+    try {
+      fs.renameSync(stagedExePath, exePath);
+    } catch (error) {
+      if (hadPrevious && fs.existsSync(previousExePath)) {
+        try {
+          fs.renameSync(previousExePath, exePath);
+        } catch {
+          // ignore restore failure
+        }
+      }
+      return null;
+    }
+    fs.writeFileSync(markerPath, desiredMarker, "utf8");
+    return { exePath, markerPath, csSource, status };
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+function removeWindowsOpenWithRegistry(runCommand, { dryRun = false } = {}) {
+  const removed = [];
+  const ow = getWindowsOpenWithKeys();
+
+  for (const { key } of ow.openWithProgidsKeys) {
+    if (deleteWindowsRegistryValue(runCommand, key, ow.progId, { dryRun })) {
+      removed.push(`${key}\\${ow.progId}`);
+    }
+  }
+  if (deleteWindowsRegistryKey(runCommand, ow.progIdKey, { dryRun })) {
+    removed.push(ow.progIdKey);
+  }
+  if (deleteWindowsRegistryKey(runCommand, ow.appKey, { dryRun })) {
+    removed.push(ow.appKey);
+  }
+  return removed;
 }
 
 export function installWindowsMenu({
@@ -267,25 +518,53 @@ export function installWindowsMenu({
   useBrowser = false,
   dryRun = false,
   runCommand = defaultRunCommand,
+  cscPath = findWindowsCsc(),
 } = {}) {
   const results = [];
-  const launcherPath = path.join(menuDir, WINDOWS_LAUNCHER);
-  const launcherContent = buildWindowsLauncherScript({ nodePath, cliPath, useBrowser });
-  const launcherStatus = writeIdempotent(launcherPath, launcherContent, { dryRun, mode: null });
-  results.push({
-    name: "Windows Silent Launcher",
-    filePath: launcherPath,
-    content: launcherContent,
-    status: launcherStatus,
-  });
 
   const iconPath = path.resolve(menuDir, WINDOWS_ICON_FILENAME);
   const iconContent = fs.readFileSync(path.join(ASSETS_DIR, WINDOWS_ICON_FILENAME));
+  const iconHash = crypto.createHash("sha256").update(iconContent).digest("hex");
   const iconStatus = writeIdempotent(iconPath, iconContent, { dryRun, mode: null });
-  results.push({ name: "Windows Context Menu Icon", filePath: iconPath, status: iconStatus });
 
-  const wscriptPath = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "wscript.exe");
-  const commandValue = `"${wscriptPath}" //E:JScript "${launcherPath}" "%1"`;
+  const exeBuilt = tryBuildWindowsExeLauncher({
+    cscPath,
+    menuDir,
+    iconPath,
+    iconHash,
+    nodePath,
+    cliPath,
+    useBrowser,
+    dryRun,
+    runCommand,
+  });
+
+  const useExe = Boolean(exeBuilt);
+  let commandValue;
+  if (useExe) {
+    results.push({
+      name: "Windows Native Launcher",
+      filePath: exeBuilt.exePath,
+      content: exeBuilt.csSource,
+      status: exeBuilt.status,
+    });
+    results.push({ name: "Windows Context Menu Icon", filePath: iconPath, status: iconStatus });
+    commandValue = `"${exeBuilt.exePath}" "%1"`;
+  } else {
+    const launcherPath = path.join(menuDir, WINDOWS_LAUNCHER);
+    const launcherContent = buildWindowsLauncherScript({ nodePath, cliPath, useBrowser });
+    const launcherStatus = writeIdempotent(launcherPath, launcherContent, { dryRun, mode: null });
+    results.push({
+      name: "Windows Silent Launcher",
+      filePath: launcherPath,
+      content: launcherContent,
+      status: launcherStatus,
+    });
+    results.push({ name: "Windows Context Menu Icon", filePath: iconPath, status: iconStatus });
+    const wscriptPath = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "wscript.exe");
+    commandValue = `"${wscriptPath}" //E:JScript "${launcherPath}" "%1"`;
+  }
+
   const iconValue = `"${iconPath}",0`;
   for (const { ext, shellKey, commandKey } of getWindowsRegistryKeys()) {
     let status = "installed";
@@ -315,8 +594,52 @@ export function installWindowsMenu({
     });
   }
 
+  if (useExe) {
+    const ow = getWindowsOpenWithKeys();
+    let openWithStatus = "installed";
+    if (!dryRun) {
+      const statuses = [
+        ensureWindowsRegistryValue(runCommand, ow.progIdKey, ["/ve"], "Markdown Document"),
+        ensureWindowsRegistryValue(runCommand, ow.progIdKey, ["/v", "FriendlyTypeName"], "Markdown Document"),
+        ensureWindowsRegistryValue(runCommand, ow.progIdIconKey, ["/ve"], iconValue),
+        ensureWindowsRegistryValue(runCommand, ow.progIdOpenKey, ["/v", "FriendlyAppName"], WINDOWS_LABEL),
+        ensureWindowsRegistryValue(runCommand, ow.progIdOpenKey, ["/v", "Icon"], iconValue),
+        ensureWindowsRegistryValue(runCommand, ow.progIdCommandKey, ["/ve"], commandValue),
+        ensureWindowsRegistryValue(runCommand, ow.appKey, ["/v", "FriendlyAppName"], WINDOWS_LABEL),
+        ensureWindowsRegistryValue(runCommand, ow.appIconKey, ["/ve"], iconValue),
+        ensureWindowsRegistryValue(runCommand, ow.appCommandKey, ["/ve"], commandValue),
+        ...WINDOWS_OPEN_WITH_EXTENSIONS.map((ext) =>
+          ensureWindowsRegistryValue(runCommand, ow.appSupportedTypesKey, ["/v", ext], "")
+        ),
+        ...ow.openWithProgidsKeys.map(({ key }) =>
+          ensureWindowsRegistryValue(runCommand, key, ["/v", ow.progId], "")
+        ),
+      ];
+      if (statuses.every((s) => s === "unchanged")) openWithStatus = "unchanged";
+      else if (statuses.some((s) => s === "updated" || s === "unchanged")) openWithStatus = "updated";
+    }
+    results.push({
+      name: "Windows Open With",
+      filePath: ow.progIdKey,
+      content: commandValue,
+      status: openWithStatus,
+    });
+  }
+
   if (!dryRun) {
     fs.rmSync(path.join(menuDir, LEGACY_WINDOWS_LAUNCHER), { force: true });
+    if (useExe) {
+      fs.rmSync(path.join(menuDir, WINDOWS_LAUNCHER), { force: true });
+    } else {
+      // If we fell back to JScript after a previous exe install, remove stale Open With entries.
+      try {
+        removeWindowsOpenWithRegistry(runCommand, { dryRun: false });
+      } catch {
+        // best-effort cleanup of stale Open With entries during fallback
+      }
+      fs.rmSync(path.join(menuDir, WINDOWS_EXE_FILENAME), { force: true });
+      fs.rmSync(path.join(menuDir, WINDOWS_EXE_MARKER_FILENAME), { force: true });
+    }
   }
   return results;
 }
@@ -329,19 +652,20 @@ export function uninstallWindowsMenu({
   const removed = [];
 
   for (const { shellKey } of getWindowsRegistryKeys()) {
-    const query = runCommand("reg", ["query", shellKey]);
-    if (query?.status === 0) {
-      if (!dryRun) {
-        const result = runCommand("reg", ["delete", shellKey, "/f"]);
-        if (result?.status !== 0) {
-          throw new Error(`Failed to delete registry key ${shellKey}: ${result?.stderr || result?.stdout || result?.error?.message || "unknown error"}`);
-        }
-      }
+    if (deleteWindowsRegistryKey(runCommand, shellKey, { dryRun })) {
       removed.push(shellKey);
     }
   }
 
-  for (const name of [WINDOWS_LAUNCHER, LEGACY_WINDOWS_LAUNCHER, WINDOWS_ICON_FILENAME]) {
+  removed.push(...removeWindowsOpenWithRegistry(runCommand, { dryRun }));
+
+  for (const name of [
+    WINDOWS_EXE_FILENAME,
+    WINDOWS_EXE_MARKER_FILENAME,
+    WINDOWS_LAUNCHER,
+    LEGACY_WINDOWS_LAUNCHER,
+    WINDOWS_ICON_FILENAME,
+  ]) {
     const filePath = path.join(menuDir, name);
     if (!fs.existsSync(filePath)) continue;
     if (!dryRun) {
