@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { getStateFilePath, startServer } from "../src/server.mjs";
 import { installKateTools, isEphemeralNpxPath, uninstallKateTools } from "../src/kate.mjs";
+import { installLinuxMenu, uninstallLinuxMenu } from "../src/menu.mjs";
 import { normalizeAppMode, openPreviewUrl } from "../src/browser.mjs";
 
 const require = createRequire(import.meta.url);
@@ -25,6 +26,8 @@ Usage:
   md-preview [options] <file.md>
   kate-md-preview install-kate [--dry-run]
   kate-md-preview uninstall-kate [--dry-run]
+  kate-md-preview install-menu [--browser] [--dry-run]
+  kate-md-preview uninstall-menu [--dry-run]
 
 Options:
   --app[=TARGET]    Open in an app window (auto: Chromium -> Firefox -> Safari on macOS)
@@ -171,6 +174,64 @@ async function main() {
       }
       if (!dryRun) {
         console.log("Restart Kate if it is currently open.");
+      }
+    }
+    return;
+  }
+
+  if (subcmd === "install-menu") {
+    if (process.platform !== "linux") {
+      console.error(
+        `install-menu currently supports Linux only (detected platform: ${process.platform}).`
+      );
+      process.exit(1);
+    }
+    const dryRun = args.includes("--dry-run");
+    const useBrowser = args.includes("--browser");
+    if (isEphemeralNpxPath(__filename)) {
+      console.warn(
+        "Warning: running from a temporary npx cache path. For persistent context-menu entries, install globally first: npm install -g kate-md-preview"
+      );
+    }
+    const items = installLinuxMenu({ cliPath: __filename, useBrowser, dryRun });
+    let changed = 0;
+    for (const item of items) {
+      if (item.status === "unchanged") {
+        console.log(`Unchanged: ${item.filePath}`);
+      } else {
+        changed++;
+        const verb = dryRun
+          ? item.status === "updated"
+            ? "[dry-run] Would update"
+            : "[dry-run] Would install"
+          : item.status === "updated"
+            ? "Updated"
+            : "Installed";
+        console.log(`${verb}: ${item.filePath}`);
+      }
+    }
+    if (!dryRun && changed > 0) {
+      console.log('Installed Linux "Open With" and KDE Dolphin context menu entries for Markdown files.');
+    } else if (!dryRun) {
+      console.log("Linux context menu entries are already up to date.");
+    }
+    return;
+  }
+
+  if (subcmd === "uninstall-menu") {
+    if (process.platform !== "linux") {
+      console.error(
+        `uninstall-menu currently supports Linux only (detected platform: ${process.platform}).`
+      );
+      process.exit(1);
+    }
+    const dryRun = args.includes("--dry-run");
+    const removed = uninstallLinuxMenu({ dryRun });
+    if (removed.length === 0) {
+      console.log("Already uninstalled (no Linux context menu entries found).");
+    } else {
+      for (const f of removed) {
+        console.log(`${dryRun ? "[dry-run] Would remove" : "Removed"}: ${f}`);
       }
     }
     return;

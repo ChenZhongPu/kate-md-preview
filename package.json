@@ -45,7 +45,9 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "install-kate": "node ./bin/cli.mjs install-kate",
-    "uninstall-kate": "node ./bin/cli.mjs uninstall-kate"
+    "uninstall-kate": "node ./bin/cli.mjs uninstall-kate",
+    "install-menu": "node ./bin/cli.mjs install-menu",
+    "uninstall-menu": "node ./bin/cli.mjs uninstall-menu"
   },
   "dependencies": {
     "github-markdown-css": "^5.8.1",

@@ -123,7 +123,30 @@ npm update -g kate-md-preview
 kate-md-preview uninstall-kate
 ```
 
-`uninstall-kate` also supports `--dry-run` and is safe to run repeatedly (it only removes the two `.ini` files and the hidden `.desktop` entry managed by this tool, leaving all other Kate tools intact).
+`uninstall-kate` also supports `--dry-run` and is safe to run repeatedly (it only removes the two `.ini` files and the hidden `.desktop` entries managed by this tool, leaving all other Kate tools intact).
+
+## Linux file manager integration ("Open With" & Dolphin menu)
+
+Register **Markdown Preview** in your Linux desktop's right-click menu for `.md` files (no `sudo` required):
+
+```bash
+kate-md-preview install-menu
+# Or open in your default browser tab instead of an app window:
+kate-md-preview install-menu --browser
+```
+
+This idempotently installs two user-level entries under `~/.local/share/`:
+
+- `applications/kate-md-preview-open.desktop` (`NoDisplay=true`, `MimeType=text/markdown;`) — adds **Markdown Preview** to **Right-click → Open With** in Dolphin, GNOME Files (Nautilus), Thunar, and other Freedesktop file managers without cluttering your app launcher or changing your default editor.
+- `kio/servicemenus/kate-md-preview.desktop` (`0755`) — adds a top-level **Markdown Preview** action in KDE Dolphin's right-click menu.
+
+Remove both cleanly at any time:
+
+```bash
+kate-md-preview uninstall-menu
+```
+
+Both `install-menu` and `uninstall-menu` support `--dry-run` and are safe to run repeatedly.
 
 ## Using with other editors
 

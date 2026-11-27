@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { renderMarkdown } from "../src/renderer.mjs";
 import { startServer } from "../src/server.mjs";
 import { installKateTools, uninstallKateTools } from "../src/kate.mjs";
+import { installLinuxMenu, uninstallLinuxMenu } from "../src/menu.mjs";
 import {
   ensureFirefoxAppProfile,
   normalizeAppMode,
@@ -346,5 +347,88 @@ test("browser launcher resolves Windows Edge, Firefox chromeless profile, and ma
     assert.ok(fs.existsSync(path.join(p2, "chrome", "userChrome.css")));
   } finally {
     fs.rmSync(tmpCache, { recursive: true, force: true });
+  }
+});
+
+test("Linux context menu installer and uninstaller are idempotent with proper permissions", () => {
+  const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), "kate-md-test-menu-"));
+  const applicationsDir = path.join(tmpData, "applications");
+  const serviceMenusDir = path.join(tmpData, "kio", "servicemenus");
+  const unrelatedDesktop = path.join(applicationsDir, "unrelated.desktop");
+
+  try {
+    fs.mkdirSync(applicationsDir, { recursive: true });
+    fs.writeFileSync(unrelatedDesktop, "[Desktop Entry]\nName=Unrelated\n");
+
+    const first = installLinuxMenu({
+      cliPath: CLI_PATH,
+      nodePath: "/usr/bin/node",
+      applicationsDir,
+      serviceMenusDir,
+      refreshCaches: false,
+    });
+    assert.equal(first.length, 2);
+    assert.ok(first.every((item) => item.status === "installed"));
+
+    const openWithText = fs.readFileSync(first[0].filePath, "utf8");
+    assert.match(openWithText, /^MimeType=text\/markdown;$/m);
+    assert.match(openWithText, /^NoDisplay=true$/m);
+    assert.match(openWithText, /--app %f$/m);
+    assert.equal(fs.statSync(first[0].filePath).mode & 0o777, 0o644);
+
+    const dolphinText = fs.readFileSync(first[1].filePath, "utf8");
+    assert.match(dolphinText, /^Type=Service$/m);
+    assert.match(dolphinText, /^MimeType=text\/markdown;$/m);
+    assert.equal(fs.statSync(first[1].filePath).mode & 0o777, 0o755);
+
+    // 2nd run: idempotent
+    const second = installLinuxMenu({
+      cliPath: CLI_PATH,
+      nodePath: "/usr/bin/node",
+      applicationsDir,
+      serviceMenusDir,
+      refreshCaches: false,
+    });
+    assert.ok(second.every((item) => item.status === "unchanged"));
+
+    // Switching to --browser updates cleanly
+    const third = installLinuxMenu({
+      cliPath: CLI_PATH,
+      nodePath: "/usr/bin/node",
+      applicationsDir,
+      serviceMenusDir,
+      useBrowser: true,
+      refreshCaches: false,
+    });
+    assert.ok(third.every((item) => item.status === "updated"));
+    assert.match(fs.readFileSync(third[0].filePath, "utf8"), /--browser %f$/m);
+
+    // CLI install-menu / uninstall-menu repeated runs
+    const env = { ...process.env, XDG_DATA_HOME: tmpData };
+    const cliInstall1 = execFileSync(process.execPath, [CLI_PATH, "install-menu"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliInstall1, /Updated:|Installed:/);
+    const cliInstall2 = execFileSync(process.execPath, [CLI_PATH, "install-menu"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliInstall2, /already up to date/);
+
+    const cliUninstall1 = execFileSync(process.execPath, [CLI_PATH, "uninstall-menu"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliUninstall1, /Removed:/);
+    const cliUninstall2 = execFileSync(process.execPath, [CLI_PATH, "uninstall-menu"], {
+      env,
+      encoding: "utf8",
+    });
+    assert.match(cliUninstall2, /Already uninstalled/);
+
+    assert.ok(fs.existsSync(unrelatedDesktop), "unrelated desktop file must remain intact");
+  } finally {
+    fs.rmSync(tmpData, { recursive: true, force: true });
   }
 });
