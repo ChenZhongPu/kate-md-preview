@@ -8,6 +8,7 @@ import { getStateFilePath, startServer } from "../src/server.mjs";
 import { installKateTools, isEphemeralNpxPath, uninstallKateTools } from "../src/kate.mjs";
 import { installSystemMenu, uninstallSystemMenu } from "../src/menu.mjs";
 import { normalizeAppMode, openPreviewUrl } from "../src/browser.mjs";
+import { createFormatter, supportsColor } from "../src/terminal.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -16,33 +17,55 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SERVER_SCRIPT = path.resolve(__dirname, "../src/server.mjs");
 
+const out = createFormatter({ color: supportsColor({ stream: process.stdout }) });
+const errOut = createFormatter({ color: supportsColor({ stream: process.stderr }) });
+
 function printHelp() {
-  console.log(`kate-md-preview v${pkg.version}
-Standalone local GitHub-style Markdown live previewer (GFM, pele Mermaid, KaTeX)
-with optional built-in KDE Kate External Tools integration.
+  const cmd = (text) => out.cyan(text);
+  const section = (text) => out.bold(text);
+  const opt = (flag, desc) => `  ${out.cyan(flag.padEnd(18))}${desc}`;
 
-Usage:
-  kate-md-preview [options] <file.md>
-  md-preview [options] <file.md>
-  kate-md-preview install-kate [--dry-run]
-  kate-md-preview uninstall-kate [--dry-run]
-  kate-md-preview install-menu [--browser] [--dry-run]
-  kate-md-preview uninstall-menu [--dry-run]
+  console.log([
+    `${out.cyan("◆")} ${out.bold("kate-md-preview")} ${out.dim(`v${pkg.version}`)}`,
+    `  ${out.dim("Local GitHub-style Markdown live previewer (GFM, pele Mermaid, KaTeX)")}`,
+    "",
+    section("Usage"),
+    `  ${cmd("md-preview")} ${out.dim("[options]")} <file.md>`,
+    `  ${cmd("kate-md-preview")} install-menu ${out.dim("[--browser] [--dry-run]")}`,
+    `  ${cmd("kate-md-preview")} uninstall-menu ${out.dim("[--dry-run]")}`,
+    `  ${cmd("kate-md-preview")} install-kate ${out.dim("[--dry-run]")}`,
+    `  ${cmd("kate-md-preview")} uninstall-kate ${out.dim("[--dry-run]")}`,
+    "",
+    section("Options"),
+    opt("--app[=TARGET]", "Open in an app window (Chromium → Firefox → Safari)"),
+    `  ${"".padEnd(18)}${out.dim("Targets: auto, chrome, chromium, edge, brave, firefox, safari")}`,
+    opt("--browser", "Open in the system default browser (default)"),
+    opt("--no-open", "Start server and print raw preview URL without opening"),
+    opt("-f, --foreground", "Run server in the foreground (Ctrl+C to stop)"),
+    opt("--status", "Show background preview daemon status"),
+    opt("--stop", "Stop the background preview daemon"),
+    opt("-v, --version", "Show version"),
+    opt("-h, --help", "Show this help message"),
+    "",
+    section("Environment"),
+    `  ${out.cyan("KATE_MD_PREVIEW_APP")}=${out.dim("1|firefox|chrome|edge|brave|safari")}`,
+    `  ${"".padEnd(18)}${out.dim("Default to --app window mode (or pin a browser)")}`,
+  ].join("\n"));
+}
 
-Options:
-  --app[=TARGET]    Open in an app window (auto: Chromium -> Firefox -> Safari on macOS)
-                    Optional TARGET: auto, chrome, chromium, edge, brave, firefox, safari
-  --browser         Open in the system default browser (default)
-  --no-open         Start server and print preview URL without opening a browser
-  -f, --foreground  Run server in the foreground for this file (Ctrl+C to stop)
-  --status          Show background preview daemon status
-  --stop            Stop the background preview daemon
-  -v, --version     Show version
-  -h, --help        Show this help message
-
-Environment:
-  KATE_MD_PREVIEW_APP=1|firefox|chrome|edge|brave|safari
-                    Default to --app window mode (or pin a specific browser)`);
+function formatInstallItem(item, dryRun) {
+  const fileText = out.dim(item.filePath);
+  if (item.status === "unchanged") {
+    return `  ${out.skip(`${out.dim("Unchanged:")} ${fileText}`)}`;
+  }
+  if (dryRun) {
+    const label = item.status === "updated" ? "[dry-run] Would update:" : "[dry-run] Would install:";
+    return `  ${out.dry(`${out.yellow(label)} ${fileText}`)}`;
+  }
+  if (item.status === "updated") {
+    return `  ${out.update(`${out.cyan("Updated:")}   ${fileText}`)}`;
+  }
+  return `  ${out.ok(`${out.green("Installed:")} ${fileText}`)}`;
 }
 
 function readState() {
@@ -136,30 +159,22 @@ async function main() {
     const dryRun = args.includes("--dry-run");
     if (isEphemeralNpxPath(__filename)) {
       console.warn(
-        "Warning: running from a temporary npx cache path. For persistent Kate bindings, install globally first: npm install -g kate-md-preview"
+        errOut.warn(
+          "running from a temporary npx cache path. For persistent Kate bindings, install globally first: npm install -g kate-md-preview"
+        )
       );
     }
     const items = installKateTools({ cliPath: __filename, dryRun });
     let changed = 0;
     for (const item of items) {
-      if (item.status === "unchanged") {
-        console.log(`Unchanged: ${item.filePath}`);
-      } else {
-        changed++;
-        const verb = dryRun
-          ? item.status === "updated"
-            ? "[dry-run] Would update"
-            : "[dry-run] Would install"
-          : item.status === "updated"
-            ? "Updated"
-            : "Installed";
-        console.log(`${verb}: ${item.filePath}`);
-      }
+      if (item.status !== "unchanged") changed++;
+      console.log(formatInstallItem(item, dryRun));
     }
     if (!dryRun && changed > 0) {
-      console.log("Restart Kate to load the External Tools (Tools -> External Tools -> Tools).");
+      console.log("");
+      console.log(out.ok("Kate External Tools ready. Restart Kate to load them (Tools → External Tools → Tools)."));
     } else if (!dryRun) {
-      console.log("Kate External Tools are already up to date.");
+      console.log(out.skip(out.dim("Kate External Tools are already up to date.")));
     }
     return;
   }
@@ -168,13 +183,17 @@ async function main() {
     const dryRun = args.includes("--dry-run");
     const removed = uninstallKateTools({ dryRun });
     if (removed.length === 0) {
-      console.log("Already uninstalled (no Kate External Tool entries found).");
+      console.log(out.skip(out.dim("Already uninstalled (no Kate External Tool entries found).")));
     } else {
       for (const f of removed) {
-        console.log(`${dryRun ? "[dry-run] Would remove" : "Removed"}: ${f}`);
+        const line = dryRun
+          ? `  ${out.dry(`${out.yellow("[dry-run] Would remove:")} ${out.dim(f)}`)}`
+          : `  ${out.remove(`${out.yellow("Removed:")} ${out.dim(f)}`)}`;
+        console.log(line);
       }
       if (!dryRun) {
-        console.log("Restart Kate if it is currently open.");
+        console.log("");
+        console.log(out.note("Restart Kate if it is currently open."));
       }
     }
     return;
@@ -185,35 +204,29 @@ async function main() {
     const useBrowser = args.includes("--browser");
     if (isEphemeralNpxPath(__filename)) {
       console.warn(
-        "Warning: running from a temporary npx cache path. For persistent context-menu entries, install globally first: npm install -g kate-md-preview"
+        errOut.warn(
+          "running from a temporary npx cache path. For persistent context-menu entries, install globally first: npm install -g kate-md-preview"
+        )
       );
     }
     const items = installSystemMenu({ cliPath: __filename, useBrowser, dryRun });
     let changed = 0;
     for (const item of items) {
-      if (item.status === "unchanged") {
-        console.log(`Unchanged: ${item.filePath}`);
-      } else {
-        changed++;
-        const verb = dryRun
-          ? item.status === "updated"
-            ? "[dry-run] Would update"
-            : "[dry-run] Would install"
-          : item.status === "updated"
-            ? "Updated"
-            : "Installed";
-        console.log(`${verb}: ${item.filePath}`);
-      }
+      if (item.status !== "unchanged") changed++;
+      console.log(formatInstallItem(item, dryRun));
     }
     if (!dryRun && changed > 0) {
-      console.log("Installed OS right-click menu integration for Markdown files.");
+      console.log("");
+      console.log(out.ok("Installed OS right-click menu integration for Markdown files."));
       if (process.platform === "win32" && !items.some((item) => item.name === "Windows Open With")) {
         console.log(
-          'Note: .NET csc.exe was unavailable or failed; fell back to the silent JScript launcher (find it under "Show more options" on Windows 11).'
+          out.note(
+            '.NET csc.exe was unavailable or failed; fell back to the silent JScript launcher (find it under "Show more options" on Windows 11).'
+          )
         );
       }
     } else if (!dryRun) {
-      console.log("OS context menu entries are already up to date.");
+      console.log(out.skip(out.dim("OS context menu entries are already up to date.")));
     }
     return;
   }
@@ -222,10 +235,13 @@ async function main() {
     const dryRun = args.includes("--dry-run");
     const removed = uninstallSystemMenu({ dryRun });
     if (removed.length === 0) {
-      console.log("Already uninstalled (no OS context menu entries found).");
+      console.log(out.skip(out.dim("Already uninstalled (no OS context menu entries found).")));
     } else {
       for (const f of removed) {
-        console.log(`${dryRun ? "[dry-run] Would remove" : "Removed"}: ${f}`);
+        const line = dryRun
+          ? `  ${out.dry(`${out.yellow("[dry-run] Would remove:")} ${out.dim(f)}`)}`
+          : `  ${out.remove(`${out.yellow("Removed:")} ${out.dim(f)}`)}`;
+        console.log(line);
       }
     }
     return;
@@ -247,7 +263,7 @@ async function main() {
     else if (arg === "--stop") stopDaemon = true;
     else if (arg === "--status") showStatus = true;
     else if (arg.startsWith("-")) {
-      console.error(`Unknown option: ${arg}`);
+      console.error(errOut.err(`Unknown option: ${errOut.bold(arg)}`));
       process.exit(1);
     } else if (!fileArg) {
       fileArg = arg;
@@ -258,11 +274,16 @@ async function main() {
     const state = readState();
     const health = await fetchHealth(state);
     if (!health) {
-      console.log("kate-md-preview daemon is not running.");
+      console.log(out.idle(out.dim("kate-md-preview daemon is not running.")));
     } else {
-      console.log(
-        `Running (pid=${health.pid}, port=${state.port}, version=${health.version}, clients=${health.clients}, sessions=${health.sessions})`
-      );
+      const details = [
+        `${out.dim("pid=")}${out.bold(health.pid)}`,
+        `${out.dim("port=")}${out.bold(state.port)}`,
+        `${out.dim("version=")}${health.version}`,
+        `${out.dim("clients=")}${health.clients}`,
+        `${out.dim("sessions=")}${health.sessions}`,
+      ].join(", ");
+      console.log(out.active(`${out.bold("Running")} (${details})`));
     }
     return;
   }
@@ -272,12 +293,12 @@ async function main() {
     if (state?.pid) {
       try {
         process.kill(state.pid, "SIGTERM");
-        console.log(`Stopped kate-md-preview (pid ${state.pid})`);
+        console.log(out.ok(`Stopped kate-md-preview ${out.dim(`(pid ${state.pid})`)}`));
       } catch {
-        console.log("kate-md-preview daemon was not running.");
+        console.log(out.idle(out.dim("kate-md-preview daemon was not running.")));
       }
     } else {
-      console.log("kate-md-preview daemon is not running.");
+      console.log(out.idle(out.dim("kate-md-preview daemon is not running.")));
     }
     return;
   }
@@ -293,15 +314,26 @@ async function main() {
     if (fs.existsSync(readme)) absFile = readme;
   }
   if (!fs.existsSync(absFile) || !fs.statSync(absFile).isFile()) {
-    console.error(`File not found: ${absFile}`);
+    console.error(errOut.err(`File not found: ${errOut.dim(absFile)}`));
     process.exit(1);
   }
+
+  const printPreviewUrl = (url, { isForeground = false } = {}) => {
+    if (noOpen || !process.stdout.isTTY) {
+      console.log(url);
+      return;
+    }
+    console.log(out.active(`${out.bold("Preview")}  ${out.url(url)}`));
+    if (isForeground) {
+      console.log(`  ${out.dim("Watching for changes · press Ctrl+C to stop")}`);
+    }
+  };
 
   if (foreground) {
     const instance = await startServer({ writeState: false, idleTimeoutMs: 0 });
     const url = instance.openFile(absFile);
     const appUrl = instance.openAppFile(absFile);
-    console.log(url);
+    printPreviewUrl(url, { isForeground: true });
     process.on("SIGINT", instance.shutdown);
     process.on("SIGTERM", instance.shutdown);
     if (!noOpen) await openPreviewUrl({ url, appUrl, appMode });
@@ -324,7 +356,7 @@ async function main() {
   }
 
   const { url, appUrl } = await resp.json();
-  console.log(url);
+  printPreviewUrl(url);
 
   if (!noOpen) {
     await openPreviewUrl({ url, appUrl, appMode });
@@ -332,6 +364,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
+  console.error(errOut.err(err instanceof Error ? err.message : String(err)));
   process.exit(1);
 });

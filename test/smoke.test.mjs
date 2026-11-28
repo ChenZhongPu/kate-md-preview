@@ -25,6 +25,7 @@ import {
   normalizeAppMode,
   resolveBrowserLaunch,
 } from "../src/browser.mjs";
+import { createFormatter, supportsColor } from "../src/terminal.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = path.resolve(__dirname, "../bin/cli.mjs");
@@ -901,4 +902,21 @@ test("macOS Finder Open With installer builds .app bundle with Markdown plist id
   } finally {
     fs.rmSync(tmpApps, { recursive: true, force: true });
   }
+});
+
+test("terminal formatter applies ANSI colors when enabled and respects NO_COLOR/non-TTY", () => {
+  assert.equal(supportsColor({ stream: { isTTY: true }, env: {} }), true);
+  assert.equal(supportsColor({ stream: { isTTY: false }, env: {} }), false);
+  assert.equal(supportsColor({ stream: { isTTY: true }, env: { NO_COLOR: "1" } }), false);
+  assert.equal(supportsColor({ stream: { isTTY: false }, env: { FORCE_COLOR: "1" } }), true);
+  assert.equal(supportsColor({ stream: { isTTY: true }, env: { TERM: "dumb" } }), false);
+
+  const plain = createFormatter({ color: false });
+  assert.equal(plain.ok("Done"), "✓ Done");
+  assert.doesNotMatch(plain.url("http://127.0.0.1:3000"), /\x1b\[/);
+
+  const styled = createFormatter({ color: true });
+  assert.match(styled.ok("Done"), /\x1b\[32m✓\x1b\[0m Done/);
+  assert.match(styled.err("Boom"), /\x1b\[31m✗\x1b\[0m Boom/);
+  assert.match(styled.url("http://127.0.0.1:3000"), /\x1b\[36m\x1b\[4mhttp:\/\/127\.0\.0\.1:3000\x1b\[0m/);
 });
