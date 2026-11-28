@@ -3,13 +3,79 @@ export function supportsColor({ stream = process.stdout, env = process.env } = {
   if (env.FORCE_COLOR === "0") return false;
   if (env.FORCE_COLOR && env.FORCE_COLOR !== "0") return true;
   if (env.TERM === "dumb") return false;
-  return Boolean(stream?.isTTY);
+  if (!stream?.isTTY) return false;
+  if (typeof stream.hasColors === "function") {
+    return stream.hasColors(env);
+  }
+  return true;
 }
 
-export function createFormatter({ color = supportsColor() } = {}) {
+export function supportsUnicode({
+  platform = process.platform,
+  env = process.env,
+} = {}) {
+  if (platform !== "win32") {
+    const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || "";
+    if (/^(C|POSIX)$/i.test(locale.trim())) return false;
+    return env.TERM !== "linux";
+  }
+
+  return Boolean(
+    env.WT_SESSION ||
+      env.TERM_PROGRAM === "vscode" ||
+      env.TERM_PROGRAM === "WezTerm" ||
+      env.TERM_PROGRAM === "mintty" ||
+      env.WEZTERM_EXECUTABLE ||
+      env.ALACRITTY_LOG ||
+      env.TERMINUS_SUBLIME ||
+      env.MSYSTEM ||
+      env.ConEmuTask === "{cmd::Cmder}" ||
+      env.TERMINAL_EMULATOR === "JetBrains-JediTerm" ||
+      env.TERM === "xterm-256color" ||
+      env.TERM === "alacritty"
+  );
+}
+
+const UNICODE_GLYPHS = {
+  brand: "◆",
+  ok: "✓",
+  active: "●",
+  idle: "○",
+  update: "↻",
+  remove: "−",
+  skip: "·",
+  dry: "◦",
+  warn: "▲",
+  err: "✗",
+  note: "ℹ",
+  arrow: "→",
+  sep: "·",
+};
+
+const ASCII_GLYPHS = {
+  brand: "*",
+  ok: "+",
+  active: "*",
+  idle: "o",
+  update: "~",
+  remove: "-",
+  skip: ".",
+  dry: "-",
+  warn: "!",
+  err: "x",
+  note: "i",
+  arrow: "->",
+  sep: "|",
+};
+
+export function createFormatter({
+  color = supportsColor(),
+  unicode = supportsUnicode(),
+} = {}) {
   const wrap = (open, close = "\x1b[0m") =>
     color ? (text) => `${open}${text}${close}` : (text) => String(text);
 
+  const g = unicode ? UNICODE_GLYPHS : ASCII_GLYPHS;
   const bold = wrap("\x1b[1m");
   const dim = wrap("\x1b[2m");
   const underline = wrap("\x1b[4m");
@@ -20,6 +86,8 @@ export function createFormatter({ color = supportsColor() } = {}) {
 
   return {
     color,
+    unicode,
+    glyphs: g,
     bold,
     dim,
     underline,
@@ -28,15 +96,16 @@ export function createFormatter({ color = supportsColor() } = {}) {
     yellow,
     cyan,
     url: (text) => (color ? `\x1b[36m\x1b[4m${text}\x1b[0m` : String(text)),
-    ok: (text) => `${green("✓")} ${text}`,
-    active: (text) => `${green("●")} ${text}`,
-    idle: (text) => `${dim("○")} ${text}`,
-    update: (text) => `${cyan("↻")} ${text}`,
-    remove: (text) => `${yellow("−")} ${text}`,
-    skip: (text) => `${dim("·")} ${text}`,
-    dry: (text) => `${yellow("◦")} ${text}`,
-    warn: (text) => `${yellow("▲")} ${yellow(bold("Warning:"))} ${text}`,
-    err: (text) => `${red("✗")} ${text}`,
-    note: (text) => `${cyan("ℹ")} ${dim(text)}`,
+    brand: (text) => `${cyan(g.brand)} ${text}`,
+    ok: (text) => `${green(g.ok)} ${text}`,
+    active: (text) => `${green(g.active)} ${text}`,
+    idle: (text) => `${dim(g.idle)} ${text}`,
+    update: (text) => `${cyan(g.update)} ${text}`,
+    remove: (text) => `${yellow(g.remove)} ${text}`,
+    skip: (text) => `${dim(g.skip)} ${text}`,
+    dry: (text) => `${yellow(g.dry)} ${text}`,
+    warn: (text) => `${yellow(g.warn)} ${yellow(bold("Warning:"))} ${text}`,
+    err: (text) => `${red(g.err)} ${text}`,
+    note: (text) => `${cyan(g.note)} ${dim(text)}`,
   };
 }

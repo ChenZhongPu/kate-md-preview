@@ -25,8 +25,9 @@ function printHelp() {
   const section = (text) => out.bold(text);
   const opt = (flag, desc) => `  ${out.cyan(flag.padEnd(18))}${desc}`;
 
+  const arrow = out.glyphs.arrow;
   console.log([
-    `${out.cyan("◆")} ${out.bold("kate-md-preview")} ${out.dim(`v${pkg.version}`)}`,
+    `${out.brand(`${out.bold("kate-md-preview")} ${out.dim(`v${pkg.version}`)}`)}`,
     `  ${out.dim("Local GitHub-style Markdown live previewer (GFM, pele Mermaid, KaTeX)")}`,
     "",
     section("Usage"),
@@ -37,7 +38,7 @@ function printHelp() {
     `  ${cmd("kate-md-preview")} uninstall-kate ${out.dim("[--dry-run]")}`,
     "",
     section("Options"),
-    opt("--app[=TARGET]", "Open in an app window (Chromium → Firefox → Safari)"),
+    opt("--app[=TARGET]", `Open in an app window (Chromium ${arrow} Firefox ${arrow} Safari)`),
     `  ${"".padEnd(18)}${out.dim("Targets: auto, chrome, chromium, edge, brave, firefox, safari")}`,
     opt("--browser", "Open in the system default browser (default)"),
     opt("--no-open", "Start server and print raw preview URL without opening"),
@@ -171,8 +172,9 @@ async function main() {
       console.log(formatInstallItem(item, dryRun));
     }
     if (!dryRun && changed > 0) {
+      const arrow = out.glyphs.arrow;
       console.log("");
-      console.log(out.ok("Kate External Tools ready. Restart Kate to load them (Tools → External Tools → Tools)."));
+      console.log(out.ok(`Kate External Tools ready. Restart Kate to load them (Tools ${arrow} External Tools ${arrow} Tools).`));
     } else if (!dryRun) {
       console.log(out.skip(out.dim("Kate External Tools are already up to date.")));
     }
@@ -325,7 +327,7 @@ async function main() {
     }
     console.log(out.active(`${out.bold("Preview")}  ${out.url(url)}`));
     if (isForeground) {
-      console.log(`  ${out.dim("Watching for changes · press Ctrl+C to stop")}`);
+      console.log(`  ${out.dim(`Watching for changes ${out.glyphs.sep} press Ctrl+C to stop`)}`);
     }
   };
 

@@ -25,7 +25,7 @@ import {
   normalizeAppMode,
   resolveBrowserLaunch,
 } from "../src/browser.mjs";
-import { createFormatter, supportsColor } from "../src/terminal.mjs";
+import { createFormatter, supportsColor, supportsUnicode } from "../src/terminal.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = path.resolve(__dirname, "../bin/cli.mjs");
@@ -904,18 +904,43 @@ test("macOS Finder Open With installer builds .app bundle with Markdown plist id
   }
 });
 
-test("terminal formatter applies ANSI colors when enabled and respects NO_COLOR/non-TTY", () => {
+test("terminal formatter applies ANSI colors and cross-platform Unicode/ASCII glyphs cleanly", () => {
   assert.equal(supportsColor({ stream: { isTTY: true }, env: {} }), true);
   assert.equal(supportsColor({ stream: { isTTY: false }, env: {} }), false);
   assert.equal(supportsColor({ stream: { isTTY: true }, env: { NO_COLOR: "1" } }), false);
   assert.equal(supportsColor({ stream: { isTTY: false }, env: { FORCE_COLOR: "1" } }), true);
   assert.equal(supportsColor({ stream: { isTTY: true }, env: { TERM: "dumb" } }), false);
+  assert.equal(supportsColor({ stream: { isTTY: true, hasColors: () => false }, env: {} }), false);
 
-  const plain = createFormatter({ color: false });
-  assert.equal(plain.ok("Done"), "✓ Done");
-  assert.doesNotMatch(plain.url("http://127.0.0.1:3000"), /\x1b\[/);
+  // Cross-platform Unicode detection
+  assert.equal(supportsUnicode({ platform: "linux", env: { LANG: "en_US.UTF-8" } }), true);
+  assert.equal(supportsUnicode({ platform: "darwin", env: {} }), true);
+  assert.equal(supportsUnicode({ platform: "linux", env: { LC_ALL: "C" } }), false);
+  assert.equal(supportsUnicode({ platform: "win32", env: {} }), false);
+  assert.equal(supportsUnicode({ platform: "win32", env: { WT_SESSION: "abc" } }), true);
+  assert.equal(supportsUnicode({ platform: "win32", env: { TERM_PROGRAM: "vscode" } }), true);
 
-  const styled = createFormatter({ color: true });
+  const plainUnicode = createFormatter({ color: false, unicode: true });
+  assert.equal(plainUnicode.ok("Done"), "✓ Done");
+  assert.doesNotMatch(plainUnicode.url("http://127.0.0.1:3000"), /\x1b\[/);
+
+  const asciiFallback = createFormatter({ color: false, unicode: false });
+  assert.equal(asciiFallback.ok("Done"), "+ Done");
+  assert.equal(asciiFallback.err("Boom"), "x Boom");
+  assert.equal(asciiFallback.glyphs.arrow, "->");
+  assert.doesNotMatch(
+    [
+      asciiFallback.brand("app"),
+      asciiFallback.ok("ok"),
+      asciiFallback.update("up"),
+      asciiFallback.warn("w"),
+      asciiFallback.err("e"),
+      asciiFallback.note("n"),
+    ].join(" "),
+    /[^\x00-\x7f]/
+  );
+
+  const styled = createFormatter({ color: true, unicode: true });
   assert.match(styled.ok("Done"), /\x1b\[32m✓\x1b\[0m Done/);
   assert.match(styled.err("Boom"), /\x1b\[31m✗\x1b\[0m Boom/);
   assert.match(styled.url("http://127.0.0.1:3000"), /\x1b\[36m\x1b\[4mhttp:\/\/127\.0\.0\.1:3000\x1b\[0m/);
