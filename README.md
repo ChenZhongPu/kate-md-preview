@@ -2,11 +2,11 @@
 
 [![npm version](https://img.shields.io/npm/v/kate-md-preview?logo=npm&label=npm)](https://www.npmjs.com/package/kate-md-preview)
 
-A lightweight, **editor-agnostic** local GitHub-style Markdown live previewer—usable both as a **standalone application** (`md-preview` / `kate-md-preview`) and with **built-in KDE Kate integration**.
+A lightweight, **editor-agnostic** local GitHub-style Markdown live previewer (`md-preview` / `kate-md-preview`)—works as a **standalone CLI / app window**, integrates directly into your **OS right-click ("Open With") menu**, and includes optional **KDE Kate** bindings.
 
-It was originally created as a non-invasive way to upgrade KDE Kate's Markdown preview (replacing `QTextBrowser`-based limitations without modifying Kate or system files), while keeping the core completely independent of any editor.
+Originally built as a non-invasive upgrade for KDE Kate's Markdown preview, the core server and CLI are completely independent of any editor.
 
-![Kate editing Markdown side-by-side with kate-md-preview](example.png)
+![Side-by-side Markdown editing with kate-md-preview](example.png)
 
 ## Features
 
@@ -20,7 +20,7 @@ It was originally created as a non-invasive way to upgrade KDE Kate's Markdown p
 - **Notion-style document outline**: Minimal right-edge TOC bars (collapsed by default, with live scroll-spy highlight) that expand into a right-side outline rail on wide screens or a floating drawer when tiled side-by-side.
 - **Standard / Full width toggle**: Defaults to GitHub's comfortable `1012px` centered reading column, with a one-click full-width toggle (Notion-style) for wide tables, code blocks, and large Mermaid diagrams.
 - **Content zoom controls**: Compact zoom pill (`70%`–`200%`) in the topbar with `Ctrl+=`, `Ctrl+-`, `Ctrl+0`, and `Ctrl+Wheel` support—scales the document cleanly while keeping the topbar and outline crisp.
-- **Standalone & Kate-ready**: Works directly from any terminal or editor, and includes `install-kate` / `uninstall-kate` commands for one-step KDE Kate External Tools setup.
+- **OS right-click menu & standalone CLI**: Register **Markdown Preview** in Linux, macOS, and Windows file managers via `install-menu`, launch from any terminal or editor, or optionally enable KDE Kate External Tools.
 
 ## Requirements
 
@@ -31,7 +31,7 @@ It was originally created as a non-invasive way to upgrade KDE Kate's Markdown p
 
 ## Installation
 
-### From npm (recommended for distribution)
+### From npm (recommended)
 
 ```bash
 npm install -g kate-md-preview
@@ -43,18 +43,50 @@ Or run directly without global installation:
 npx kate-md-preview README.md
 ```
 
+### Upgrading
+
+```bash
+npm update -g kate-md-preview
+```
+
+The CLI automatically restarts any older background preview daemon when the package version changes. Only re-run `install-menu` (or `install-kate`) if a release updates launcher wrappers/icons or if you move your Node.js installation path.
+
 ### From source
 
 ```bash
 git clone https://github.com/ChenZhongPu/kate-md-preview.git
 cd kate-md-preview
 npm install --omit=dev
-npm link   # optional: exposes kate-md-preview and md-preview on PATH
+npm link   # optional: exposes md-preview and kate-md-preview on PATH
 ```
 
-## Standalone usage
+## OS right-click menu integration ("Open With")
 
-Both `kate-md-preview` and `md-preview` invoke the same CLI:
+Register **Markdown Preview** in your system file manager's right-click menu for `.md` / `.markdown` files (user-level only, no `sudo` or administrator privileges required):
+
+```bash
+md-preview install-menu
+# Or open in your default browser tab instead of an app window:
+md-preview install-menu --browser
+```
+
+What `install-menu` sets up per platform:
+
+- **Linux**: Installs `~/.local/share/applications/kate-md-preview-open.desktop` (`NoDisplay=true`, `MimeType=text/markdown;` — adds **Markdown Preview** under **Right-click → Open With** in Dolphin, GNOME Files, Thunar, etc.) and `~/.local/share/kio/servicemenus/kate-md-preview.desktop` (`0755` — adds a KDE Dolphin right-click service menu action), without changing your default editor.
+- **macOS**: Uses macOS built-in `osacompile` to generate a lightweight `~/Applications/Markdown Preview.app` wrapper (with multi-resolution Retina `.icns` icon) declaring Markdown document types (`net.daringfireball.markdown`, `.md`, `.markdown`), making **Markdown Preview** available in Finder's **Right-click → Open With** menu.
+- **Windows**: Compiles a tiny native windowless launcher (`%LOCALAPPDATA%\kate-md-preview\kate-md-preview.exe`, with embedded multi-resolution `.ico` icon) using the built-in .NET Framework `csc.exe`, registering both **Right-click → Open with → Markdown Preview** (visible directly in the top-level menu on Windows 11 via `HKCU\Software\Classes\...\OpenWithProgids`) and Explorer's `.md` / `.markdown` shell menu. If `csc.exe` is unavailable or compilation fails, it automatically falls back to a silent JScript launcher (`launch.js` via `wscript.exe`, found under **Show more options** on Windows 11).
+
+Remove all menu entries cleanly at any time:
+
+```bash
+md-preview uninstall-menu
+```
+
+Both `install-menu` and `uninstall-menu` support `--dry-run` and are idempotent (safe to run repeatedly).
+
+## Standalone CLI usage
+
+Both `md-preview` and `kate-md-preview` invoke the same CLI:
 
 ```bash
 # Open in your default web browser (starts/reuses a single local background daemon)
@@ -81,84 +113,54 @@ md-preview --stop
 
 Passing a directory opens its `README.md` if present. Set `KATE_MD_PREVIEW_APP=1` (or `firefox`, `chrome`, `edge`, `brave`, `safari`) to default to `--app` window mode.
 
-> **How `--app` works across browsers:**
-> - **Chrome / Chromium / Edge / Brave** (Linux, macOS, Windows): native `--app=<url>` chromeless window.
-> - **Firefox** (Linux, macOS, Windows) uses a dedicated preview profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars. On macOS and Windows, all preview windows reuse this profile. On Linux, concurrent launches use an extra preview profile if the primary one is in use.
-> - **Safari** (macOS): opens a dedicated standalone Safari window via AppleScript (`osascript`), since Safari does not provide a native chromeless CLI flag.
+<details>
+<summary>How <code>--app</code> works across browsers</summary>
 
-## KDE Kate integration (built-in)
+- **Chrome / Chromium / Edge / Brave** (Linux, macOS, Windows): native `--app=<url>` chromeless window.
+- **Firefox** (Linux, macOS, Windows): uses a dedicated preview profile in your cache directory (`user.js` + `chrome/userChrome.css`) to hide tabs and toolbars without touching your everyday Firefox profile. On macOS and Windows, all preview windows reuse this profile; on Linux, concurrent launches use an extra preview profile if the primary one is in use.
+- **Safari** (macOS): opens a dedicated standalone Safari window via AppleScript (`osascript`), since Safari does not provide a native chromeless CLI flag.
 
-This package includes built-in bindings for **Kate External Tools** (`Tools -> External Tools`), keeping your system files and Kate installation completely untouched.
+</details>
 
-### 1. Register Kate External Tools
-
-```bash
-kate-md-preview install-kate
-```
-
-This detects your current Node.js binary (including `fnm` and `volta` shims) and writes two user-level `.ini` entries to `~/.config/kate/externaltools/`, plus hidden desktop entries (`chrome-127.0.0.1__kate-md-preview-Default.desktop` and `kate-md-preview.desktop`, both `NoDisplay=true`) on Linux so both Chromium and Firefox `--app` windows match Wayland `app_id` and display a crisp vector SVG taskbar icon:
-
-- **Markdown Preview (GitHub)** — opens the current file in your default browser.
-- **Markdown Preview (GitHub App Window)** — opens a chromeless Chromium-based app window (via the fixed `/kate-md-preview` launcher route) suited for side-by-side tiling with Kate.
-
-Use `kate-md-preview install-kate --dry-run` to inspect what would be written before making changes. Running `install-kate` multiple times is idempotent: unchanged entries are left untouched, existing shortcuts are preserved, and updated paths are refreshed cleanly.
-
-### 2. Use in Kate
-
-1. Make sure the **External Tools** plugin is enabled (**Settings → Configure Kate → Plugins → External Tools**).
-2. Restart Kate once so it loads the new tool entries.
-3. Open any `.md` file and run **Tools → External Tools → Tools → Markdown Preview (GitHub)** (or **App Window**).
-4. Optional: bind a shortcut in **Settings → Configure Keyboard Shortcuts** (search for `Markdown Preview`).
-5. Saving (`Ctrl+S`) in Kate automatically refreshes the preview in place.
-
-### Upgrading
-
-```bash
-npm update -g kate-md-preview
-```
-
-- For routine upgrades, you **do not** need to re-run `kate-md-preview install-kate`: the registered `.ini` entries keep pointing to your global npm package, and the CLI automatically restarts any older background preview daemon when the package version changes.
-- Only re-run `kate-md-preview install-kate` if a release adds new Kate/desktop entries or if you move your Node.js installation path (e.g., switching Node version managers).
-
-### Uninstall Kate bindings
-
-```bash
-kate-md-preview uninstall-kate
-```
-
-`uninstall-kate` also supports `--dry-run` and is safe to run repeatedly (it only removes the two `.ini` files and the hidden `.desktop` entries managed by this tool, leaving all other Kate tools intact).
-
-## OS file manager integration ("Open With" / context menu)
-
-Register **Markdown Preview** in your system file manager's right-click menu for `.md` / `.markdown` files (user-level only, no `sudo` or administrator privileges required):
-
-```bash
-kate-md-preview install-menu
-# Or open in your default browser tab instead of an app window:
-kate-md-preview install-menu --browser
-```
-
-What `install-menu` sets up per platform:
-
-- **Linux**: Installs `~/.local/share/applications/kate-md-preview-open.desktop` (`NoDisplay=true`, `MimeType=text/markdown;` — adds **Markdown Preview** under **Right-click → Open With** in Dolphin, GNOME Files, Thunar, etc.) and `~/.local/share/kio/servicemenus/kate-md-preview.desktop` (`0755` — adds a KDE Dolphin right-click service menu action), without changing your default editor.
-- **macOS**: Uses macOS built-in `osacompile` to generate a lightweight `~/Applications/Markdown Preview.app` wrapper declaring Markdown document types (`net.daringfireball.markdown`, `.md`, `.markdown`), making **Markdown Preview** available in Finder's **Right-click → Open With** menu.
-- **Windows**: Compiles a tiny native windowless launcher (`%LOCALAPPDATA%\kate-md-preview\kate-md-preview.exe`, with our embedded multi-resolution `.ico` icon) using the built-in .NET Framework `csc.exe`, registering both **Right-click → Open with → Markdown Preview** (visible directly in the top-level menu on Windows 11 via `HKCU\Software\Classes\...\OpenWithProgids`) and Explorer's `.md` / `.markdown` shell menu. If `csc.exe` is unavailable or compilation fails, it automatically falls back to the silent JScript launcher (`launch.js` via `wscript.exe`, found under **Show more options** on Windows 11). Running `install-menu` again upgrades older JScript/VBScript installations seamlessly.
-
-Remove all menu entries cleanly at any time:
-
-```bash
-kate-md-preview uninstall-menu
-```
-
-Both `install-menu` and `uninstall-menu` support `--dry-run` and are idempotent (safe to run repeatedly).
-
-## Using with other editors
+## Editor integrations
 
 Because the core server is completely editor-agnostic, you can bind `md-preview` to any editor:
 
 - **Neovim**: `:!md-preview --app %:p`
 - **Helix**: `:sh md-preview --app %{buffer_name}`
-- **Any terminal / file manager**: run `md-preview /path/to/file.md`
+- **KDE Kate** (optional built-in installer): `kate-md-preview install-kate` / `kate-md-preview uninstall-kate`
+
+<details>
+<summary>KDE Kate setup & details</summary>
+
+Register two user-level External Tools under `~/.config/kate/externaltools/` (without modifying Kate or system files):
+
+```bash
+kate-md-preview install-kate
+```
+
+- **Markdown Preview (GitHub)** — opens the current file in your default browser.
+- **Markdown Preview (GitHub App Window)** — opens a chromeless app window suited for side-by-side tiling with Kate.
+
+On Linux, `install-kate` also writes hidden desktop entries (`chrome-127.0.0.1__kate-md-preview-Default.desktop` and `kate-md-preview.desktop`, both `NoDisplay=true`) so Chromium and Firefox `--app` windows match Wayland `app_id` and show a crisp vector SVG taskbar icon.
+
+**Using in Kate:**
+
+1. Ensure the **External Tools** plugin is enabled (**Settings → Configure Kate → Plugins → External Tools**).
+2. Restart Kate once so it loads the new entries.
+3. Open any `.md` file and run **Tools → External Tools → Tools → Markdown Preview (GitHub)** (or **App Window**).
+4. Optional: bind a shortcut in **Settings → Configure Keyboard Shortcuts** (search for `Markdown Preview`, e.g. `Ctrl+Shift+M`).
+5. Saving (`Ctrl+S`) in Kate automatically refreshes the preview in place.
+
+**Uninstall Kate bindings:**
+
+```bash
+kate-md-preview uninstall-kate
+```
+
+Both `install-kate` and `uninstall-kate` support `--dry-run` and are idempotent (existing shortcuts and other Kate tools are preserved).
+
+</details>
 
 ## Security & runtime design
 
