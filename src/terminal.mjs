@@ -107,5 +107,22 @@ export function createFormatter({
     warn: (text) => `${yellow(g.warn)} ${yellow(bold("Warning:"))} ${text}`,
     err: (text) => `${red(g.err)} ${text}`,
     note: (text) => `${cyan(g.note)} ${dim(text)}`,
+    banner: ({ version, subtitle = "", active = true } = {}) => {
+      const [m1, m2, m3] = unicode
+        ? [bold("█▄ ▄█  █▀▀▄"), bold("█ ▀ █  █  █"), bold("█   █  █▄▄▀")]
+        : [bold("|\\ /|  |--."), bold("| V |  |  |"), bold("|   |  |--'")];
+      const eyeTop = dim(unicode ? " ╱─────╲ " : " /-----\\ ");
+      const eyeMid = active
+        ? `${dim("<  ")}${cyan(unicode ? "(●)" : "(o)")}${dim("  >")}`
+        : dim(unicode ? "<  ───  >" : "<  ---  >");
+      const eyeBot = dim(unicode ? " ╲─────╱ " : " \\-----/ ");
+      const title = `${bold("kate-md-preview")} ${dim(`v${version}`)}`;
+      const sub = subtitle ? dim(subtitle) : "";
+      return [
+        `  ${m1}    ${eyeTop}`,
+        `  ${m2}    ${eyeMid}   ${title}`,
+        `  ${m3}    ${eyeBot}${sub ? `   ${sub}` : ""}`,
+      ].join("\n");
+    },
   };
 }

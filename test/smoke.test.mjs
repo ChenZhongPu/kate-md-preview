@@ -944,4 +944,19 @@ test("terminal formatter applies ANSI colors and cross-platform Unicode/ASCII gl
   assert.match(styled.ok("Done"), /\x1b\[32m✓\x1b\[0m Done/);
   assert.match(styled.err("Boom"), /\x1b\[31m✗\x1b\[0m Boom/);
   assert.match(styled.url("http://127.0.0.1:3000"), /\x1b\[36m\x1b\[4mhttp:\/\/127\.0\.0\.1:3000\x1b\[0m/);
+
+  const uniBanner = plainUnicode.banner({ version: "1.4.0", subtitle: "foreground preview", active: true });
+  assert.equal(uniBanner.split("\n").length, 3);
+  assert.match(uniBanner, /█▄ ▄█/);
+  assert.match(uniBanner, /\(●\)/);
+
+  const asciiActive = asciiFallback.banner({ version: "1.4.0", subtitle: "daemon status", active: true });
+  assert.equal(asciiActive.split("\n").length, 3);
+  assert.doesNotMatch(asciiActive, /[^\x00-\x7f]/);
+  assert.match(asciiActive, /\(o\)/);
+
+  const asciiIdle = asciiFallback.banner({ version: "1.4.0", subtitle: "daemon status", active: false });
+  assert.equal(asciiIdle.split("\n").length, 3);
+  assert.doesNotMatch(asciiIdle, /[^\x00-\x7f]/);
+  assert.match(asciiIdle, /<  ---  >/);
 });

@@ -275,8 +275,10 @@ async function main() {
   if (showStatus) {
     const state = readState();
     const health = await fetchHealth(state);
+    console.log(out.banner({ version: pkg.version, subtitle: "daemon status", active: Boolean(health) }));
+    console.log("");
     if (!health) {
-      console.log(out.idle(out.dim("kate-md-preview daemon is not running.")));
+      console.log(`  ${out.idle(out.dim("kate-md-preview daemon is not running."))}`);
     } else {
       const details = [
         `${out.dim("pid=")}${out.bold(health.pid)}`,
@@ -285,7 +287,7 @@ async function main() {
         `${out.dim("clients=")}${health.clients}`,
         `${out.dim("sessions=")}${health.sessions}`,
       ].join(", ");
-      console.log(out.active(`${out.bold("Running")} (${details})`));
+      console.log(`  ${out.active(`${out.bold("Running")} (${details})`)}`);
     }
     return;
   }
@@ -325,10 +327,14 @@ async function main() {
       console.log(url);
       return;
     }
-    console.log(out.active(`${out.bold("Preview")}  ${out.url(url)}`));
     if (isForeground) {
-      console.log(`  ${out.dim(`Watching for changes ${out.glyphs.sep} press Ctrl+C to stop`)}`);
+      console.log(out.banner({ version: pkg.version, subtitle: "foreground preview", active: true }));
+      console.log("");
+      console.log(`  ${out.active(`${out.bold("Preview")}  ${out.url(url)}`)}`);
+      console.log(`    ${out.dim(`Watching for changes ${out.glyphs.sep} press Ctrl+C to stop`)}`);
+      return;
     }
+    console.log(out.active(`${out.bold("Preview")}  ${out.url(url)}`));
   };
 
   if (foreground) {
